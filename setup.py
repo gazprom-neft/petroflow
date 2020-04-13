@@ -1,4 +1,4 @@
-"""PetroFlow is a library that allows to process well data (logs, core photo
+"""PetroFlow is a library that allows processing well data (logs, core images
 etc.) and conveniently train machine learning models.
 """
 
@@ -32,6 +32,7 @@ setup(
         'matplotlib>=3.0.1',
         'seaborn>=0.9.0',
         'plotly>=4.1.1',
+        'pint>=0.11',
         'pillow>=6.2.0',
         'blosc==1.8.1',
         'feather_format>=0.4.0',

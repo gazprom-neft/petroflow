@@ -69,14 +69,17 @@ class WellBatch(Batch, AbstractWell, metaclass=WellDelegatingMeta):
     def __init__(self, index, *args, preloaded=None, **kwargs):
         super().__init__(index, *args, preloaded=preloaded, **kwargs)
         if preloaded is None:
-            # Init wells with paths from index
-            wells = [Well(self.index.get_fullpath(well), **kwargs) for well in self.indices]
-            self.wells = np.array(wells)
+            self._init_wells(**kwargs)
+
+    @inbatch_parallel(init="indices", post="_filter_assemble", target="for")
+    def _init_wells(self, index, **kwargs):
+        """Init a well with its path from batch index."""
+        return Well(self.index.get_fullpath(index), **kwargs)
 
     def _filter_assemble(self, results, *args, **kwargs):
         skip_mask = np.array([isinstance(res, SkipWellException) for res in results])
         if sum(skip_mask) == len(self):
-            raise SkipBatchException
+            raise SkipBatchException(str(results[0]))
         results = np.array(results)[~skip_mask]  # pylint: disable=invalid-unary-operand-type
         if any_action_failed(results):
             errors = self.get_errors(results)

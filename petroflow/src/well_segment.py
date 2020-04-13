@@ -88,7 +88,11 @@ class WellSegment(AbstractWellSegment):
     `core_dl` and `core_uv` attributes are loaded either by accessing them for
     the first time, or by calling `load_core` method.
 
-    # TODO: add info about depth units
+    Depth and length values in all the attributes are assumed to be stored in
+    centimeters for all formats, except for `.las`, where depths units are
+    assumed to be meters and are converted to centimeters by the `load_las`
+    method. Log units are not parsed from a `.las` file header since they are
+    optional and their format is not strictly fixed.
 
     Parameters
     ----------
@@ -121,10 +125,12 @@ class WellSegment(AbstractWellSegment):
         Well name, loaded from `meta.json`.
     field : str
         Field name, loaded from `meta.json`.
-    depth_from : int
+    depth_from : int or str
         Minimum depth entry in the well logs in cm, loaded from `meta.json`.
-    depth_to : int
+        If `str`, must be specified in a <value><units> format (e.g. "10m").
+    depth_to : int or str
         Maximum depth entry in the well logs in cm, loaded from `meta.json`.
+        If `str`, must be specified in a <value><units> format (e.g. "10m").
     actual_depth_to : int
         Actual maximum segment depth in cm. It is defined if the segment has
         been padded by the `crop` method and is then used in `Well.aggregate`
@@ -203,12 +209,11 @@ class WellSegment(AbstractWellSegment):
             meta = json.load(meta_file)
         self.name = meta["name"]
         self.field = meta["field"]
-        self.depth_from = meta["depth_from"]
-        self.depth_to = meta["depth_to"]
+        self.depth_from = parse_depth(meta["depth_from"], var_name="depth_from")
+        self.depth_to = parse_depth(meta["depth_to"], var_name="depth_to")
         self.actual_depth_to = None
-
-        if self.validate:
-            self._validate_meta()
+        if self.depth_from >= self.depth_to:
+            raise ValueError("depth_from must be less than depth_to")
 
         self.has_samples = self._has_file("samples")
 
@@ -226,16 +231,11 @@ class WellSegment(AbstractWellSegment):
         self._core_uv = None
         self._boring_intervals_deltas = None
         self._core_lithology_deltas = None
-        self._tolerance = 1e-3  # A tolerance to compare float-valued depths for equality.
 
         # In order to unify aggregate behavior in case of loaded and calculated `boring_sequences`,
         # they should be computed explicitly during the creation of a segment.
         if self._has_file("boring_intervals") and not self._has_file("boring_sequences"):
             _ = self.boring_sequences
-
-    def _validate_meta(self):
-        if not (isinstance(self.depth_from, int) and isinstance(self.depth_to, int)):
-            raise ValueError("depth_from and depth_to must have int type")
 
     @property
     def length(self):
@@ -299,8 +299,11 @@ class WellSegment(AbstractWellSegment):
     @staticmethod
     def _load_las(path, *args, **kwargs):
         """Load a `.las` file into a `DataFrame`."""
-        # TODO: add m -> cm cast
-        return lasio.read(path, *args, **kwargs).df().reset_index()
+        df = lasio.read(path, *args, **kwargs).df().reset_index().rename(columns={"DEPT": "DEPTH"})
+        # DEPTH values in a .las file are assumed to be in meters and converted to centimeters in the next line. Units
+        # are not parsed from .las file header since they are optional and their format is not strictly fixed.
+        df["DEPTH"] = np.round(df["DEPTH"] * 100).astype(int)
+        return df
 
     @staticmethod
     def _load_csv(path, *args, **kwargs):
@@ -647,6 +650,33 @@ class WellSegment(AbstractWellSegment):
         encoded_img = "data:image/png;base64," + encoded_img
         return encoded_img
 
+    def _plot_core(self, subplot_titles, traces, images, plot_core, image_dir, title):
+        """Create a trace with core images if `plot_core` is `True` and
+        `image_dir` exists in a well dir and return the index of the created
+        subplot.
+
+        Note, that the method has side effects: it updates `subplot_titles`,
+        `traces` and `images` lists inplace.
+        """
+        plot_core = plot_core and os.path.isdir(os.path.join(self.path, image_dir))
+        if not plot_core:
+            return None
+        col = len(traces) + 1
+        subplot_titles += [title]
+        traces.append(go.Scatter(x=[0, 1], y=[self.depth_from / 100, self.depth_to / 100], opacity=0))
+        samples = self.samples.reset_index()[["DEPTH_FROM", "DEPTH_TO", "SAMPLE"]]
+        for _, (depth_from, depth_to, sample_name) in samples.iterrows():
+            depth_from /= 100
+            depth_to /= 100
+            sample_name = str(sample_name)
+
+            sample_path = self._get_full_name(os.path.join(self.path, image_dir), sample_name)
+            sample_image = self._encode(sample_path)
+            sample_image = go.layout.Image(source=sample_image, xref="x"+str(col), yref="y", x=0, y=depth_from,
+                                           sizex=1, sizey=depth_to-depth_from, sizing="stretch", layer="below")
+            images.append(sample_image)
+        return col
+
     def plot(self, plot_core=True, interactive=True, subplot_height=700, subplot_width=200):
         """Plot well logs and core images.
 
@@ -683,56 +713,37 @@ class WellSegment(AbstractWellSegment):
         # figsize in order to prevent figure shrinkage in case of small number of subplots
         margin = 120
 
-        n_cols = len(self.logs.columns)
+        # Create traces for well logs
+        index = self.logs.index / 100
         subplot_titles = list(self.logs.columns)
-        if plot_core and self.has_samples:
-            n_cols += 2
-            subplot_titles += ["CORE DL", "CORE UV"]
-            dl_col = n_cols - 1
-            uv_col = n_cols
+        traces = [go.Scatter(x=self.logs[mnemonic], y=index, mode="lines") for mnemonic in subplot_titles]
 
-        fig = make_subplots(rows=1, cols=n_cols, subplot_titles=subplot_titles, shared_yaxes=True)
-        for i, mnemonic in enumerate(self.logs.columns, 1):
-            trace = go.Scatter(x=self.logs[mnemonic], y=self.logs.index, mode="lines", name=mnemonic)
+        # Create DL and UV traces
+        images = []
+        dl_col = self._plot_core(subplot_titles, traces, images, plot_core, "samples_dl", "CORE DL")
+        uv_col = self._plot_core(subplot_titles, traces, images, plot_core, "samples_uv", "CORE UV")
+
+        # Create a figure
+        fig = make_subplots(rows=1, cols=len(traces), shared_yaxes=True, subplot_titles=subplot_titles)
+        for i, trace in enumerate(traces, 1):
             fig.append_trace(trace, 1, i)
 
-        images = []
-        if plot_core and self.has_samples:
-            trace = go.Scatter(x=[0, 1], y=[self.depth_from, self.depth_to], opacity=0, name="CORE DL")
-            fig.append_trace(trace, 1, dl_col)
-            trace = go.Scatter(x=[0, 1], y=[self.depth_from, self.depth_to], opacity=0, name="CORE UV")
-            fig.append_trace(trace, 1, uv_col)
-
-            samples = self.samples.reset_index()[["DEPTH_FROM", "DEPTH_TO", "SAMPLE"]]
-            for _, (depth_from, depth_to, sample_name) in samples.iterrows():
-                sample_name = str(sample_name)
-
-                dl_path = self._get_full_name(os.path.join(self.path, "samples_dl"), sample_name)
-                sample_dl = self._encode(dl_path)
-                sample_dl = go.layout.Image(source=sample_dl, xref="x"+str(dl_col), yref="y", x=0, y=depth_from,
-                                            sizex=1, sizey=depth_to-depth_from, sizing="stretch", layer="below")
-                images.append(sample_dl)
-
-                uv_path = self._get_full_name(os.path.join(self.path, "samples_uv"), sample_name)
-                sample_uv = self._encode(uv_path)
-                sample_uv = go.layout.Image(source=sample_uv, xref="x"+str(uv_col), yref="y", x=0, y=depth_from,
-                                            sizex=1, sizey=depth_to-depth_from, sizing="stretch", layer="below")
-                images.append(sample_uv)
-
+        # Update figure layout
         layout = fig.layout
         fig_layout = go.Layout(title="{} {}".format(self.field.capitalize(), self.name), showlegend=False,
-                               width=n_cols*subplot_width + margin, height=subplot_height,
-                               yaxis=dict(range=[self.depth_to, self.depth_from]), images=images)
+                               width=len(traces)*subplot_width + margin, height=subplot_height,
+                               yaxis=dict(range=[self.depth_to / 100, self.depth_from / 100]), images=images)
         layout.update(fig_layout)
 
         for key in layout:
             if key.startswith("xaxis"):
                 layout[key]["fixedrange"] = True
 
-        if plot_core and self.has_samples:
+        if dl_col is not None:
             layout["xaxis" + str(dl_col)]["showticklabels"] = False
             layout["xaxis" + str(dl_col)]["showgrid"] = False
 
+        if uv_col is not None:
             layout["xaxis" + str(uv_col)]["showticklabels"] = False
             layout["xaxis" + str(uv_col)]["showgrid"] = False
 
@@ -772,10 +783,10 @@ class WellSegment(AbstractWellSegment):
             raise ValueError("A well does not support slicing with a specified step")
 
         if key.start is not None:
-            res.depth_from = max(parse_depth(key.start), res.depth_from)
+            res.depth_from = max(parse_depth(key.start, var_name="depth_from"), res.depth_from)
 
         if key.stop is not None:
-            res.depth_to = min(parse_depth(key.stop), res.depth_to)
+            res.depth_to = min(parse_depth(key.stop, var_name="depth_to"), res.depth_to)
 
         if res.depth_from > res.depth_to:
             raise SkipWellException("Slicing interval is out of segment bounds")
@@ -1088,17 +1099,17 @@ class WellSegment(AbstractWellSegment):
         string in a `modes` list."""
         return [cls._unify_matching_mode(mode) for mode in to_list(modes)]
 
-    def _blur_log(self, log, win_size):
+    @staticmethod
+    def _blur_log(log, win_size):
         """Blur a log with a Gaussian filter of size `win_size`."""
         if win_size is None:
             return log
         old_index = log.index
-        new_index = np.arange(old_index.min(), old_index.max(), 0.01)
-        log = log.reindex(index=new_index, method="nearest", tolerance=self._tolerance)
-        log = log.interpolate(limit_direction="both")
+        new_index = np.arange(old_index.min(), old_index.max() + 1)
+        log = log.reindex(index=new_index).interpolate(method="index", limit_direction="both")
         std = win_size / 6  # three-sigma rule
         log = log.rolling(window=win_size, min_periods=1, win_type="gaussian", center=True).mean(std=std)
-        log = log.reindex(index=old_index, method="nearest")
+        log = log.loc[old_index]
         return log
 
     def match_core_logs(self, mode="GK ~ core_logs.GK", split_lithology_intervals=True, gaussian_win_size=None,
@@ -1319,6 +1330,7 @@ class WellSegment(AbstractWellSegment):
         # figsize in order to prevent figure shrinkage in case of small number of subplots
         margin = 120
 
+        # Calculate matching R^2 if core-to-log matching was not performed
         boring_sequences = self.boring_sequences.reset_index()
         if mode is None and "MODE" not in boring_sequences.columns:
             raise ValueError("Core-to-log matching has to be performed beforehand if mode is not specified")
@@ -1333,13 +1345,14 @@ class WellSegment(AbstractWellSegment):
             for _, (depth_from, depth_to, _mode) in boring_sequences[["DEPTH_FROM", "DEPTH_TO", "MODE"]].iterrows():
                 log_mnemonic, core_mnemonic, core_attr, sign = self._parse_matching_mode(_mode)
                 well_log = self.logs[log_mnemonic].dropna()
-                core_log_segment = sign * getattr(self, core_attr)[core_mnemonic].dropna()[depth_from:depth_to]
+                core_log_segment = sign * getattr(self, core_attr)[core_mnemonic].dropna().loc[depth_from:depth_to]
                 r2_list.append(self._calc_matching_r2(well_log, core_log_segment))
             boring_sequences["R2"] = r2_list
         boring_sequences = boring_sequences[["DEPTH_FROM", "DEPTH_TO", "MODE", "R2"]]
         not_none_mask = boring_sequences["MODE"].map(lambda x: x is not None)
         boring_sequences = boring_sequences[not_none_mask]
 
+        # Create a figure and traces for well and core logs
         depth_from_list = boring_sequences["DEPTH_FROM"]
         depth_to_list = boring_sequences["DEPTH_TO"]
         mode_list = boring_sequences["MODE"]
@@ -1351,8 +1364,8 @@ class WellSegment(AbstractWellSegment):
 
         for i, (depth_from, depth_to, _mode) in enumerate(zip(depth_from_list, depth_to_list, mode_list), 1):
             log_mnemonic, core_mnemonic, core_attr, sign = self._parse_matching_mode(_mode)
-            well_log_segment = self.logs[log_mnemonic].dropna()[depth_from - 3 : depth_to + 3]
-            core_log_segment = sign * getattr(self, core_attr)[core_mnemonic].dropna()[depth_from:depth_to]
+            well_log_segment = self.logs[log_mnemonic].dropna().loc[depth_from - 300 : depth_to + 300]
+            core_log_segment = sign * getattr(self, core_attr)[core_mnemonic].dropna().loc[depth_from:depth_to]
 
             if scale and min(len(well_log_segment), len(core_log_segment)) > 1:
                 log_interpolator = interp1d(well_log_segment.index, well_log_segment, kind="linear",
@@ -1362,14 +1375,15 @@ class WellSegment(AbstractWellSegment):
                 reg = LinearRegression().fit(X, y)
                 core_log_segment = pd.Series(reg.predict(X), index=core_log_segment.index)
 
-            well_log_trace = go.Scatter(x=well_log_segment, y=well_log_segment.index, name="Well " + log_mnemonic,
-                                        line=dict(color="rgb(255, 127, 14)"), showlegend=False)
+            well_log_trace = go.Scatter(x=well_log_segment, y=well_log_segment.index / 100, showlegend=False,
+                                        line=dict(color="rgb(255, 127, 14)"))
             drawing_mode = "markers" if core_attr == "core_properties" else None
-            core_log_trace = go.Scatter(x=core_log_segment, y=core_log_segment.index, name="Core " + core_mnemonic,
-                                        line=dict(color="rgb(31, 119, 180)"), mode=drawing_mode, showlegend=False)
+            core_log_trace = go.Scatter(x=core_log_segment, y=core_log_segment.index / 100, showlegend=False,
+                                        line=dict(color="rgb(31, 119, 180)"), mode=drawing_mode)
             fig.append_trace(well_log_trace, 1, i)
             fig.append_trace(core_log_trace, 1, i)
 
+        # Update figure layout
         layout = fig.layout
         fig_layout = go.Layout(title="{} {}".format(self.field.capitalize(), self.name),
                                legend=dict(orientation="h"), width=n_cols*subplot_width + margin,
@@ -1383,6 +1397,7 @@ class WellSegment(AbstractWellSegment):
         for ann in layout["annotations"]:
             ann["font"]["size"] = 14
 
+        # Reverse y-axis on all the subplots
         for ix in range(n_cols):
             axis_ix = str(ix + 1) if ix > 0 else ""
             axis_name = "yaxis" + axis_ix
@@ -1624,8 +1639,9 @@ class WellSegment(AbstractWellSegment):
 
         Parameters
         ----------
-        length : positive float
-            Length of each crop in centimeters.
+        length : positive int or str
+            Length of each crop in centimeters. If `str`, must be specified in
+            a <value><units> format (e.g. "10m").
         n_crops : positive int, optional
             The number of crops from the segment. Defaults to 1.
 
@@ -1634,6 +1650,7 @@ class WellSegment(AbstractWellSegment):
         segments : list of WellSegment
             Cropped segments.
         """
+        length = parse_depth(length, check_positive=True, var_name="length")
         bounds = self.depth_from, max(self.depth_from, self.depth_to - length)
         crops_starts = np.floor(np.sort(np.random.uniform(*bounds, size=n_crops))).astype(int).tolist()
         crops = [self[start:start+length] for start in crops_starts]
@@ -1645,10 +1662,12 @@ class WellSegment(AbstractWellSegment):
 
         Parameters
         ----------
-        length : positive float
-            Length of each crop in centimeters.
-        step : positive float
-            Step of cropping in centimeters.
+        length : positive int or str
+            Length of each crop in centimeters. If `str`, must be specified in
+            a <value><units> format (e.g. "10m").
+        step : positive int or str
+            Step of cropping in centimeters.  If `str`, must be specified in a
+            <value><units> format (e.g. "10m").
         drop_last : bool, optional
             If `True`, only crops that lie within the segment will be kept.
             If `False`, the first crop which comes out of segment bounds will
@@ -1663,8 +1682,8 @@ class WellSegment(AbstractWellSegment):
         segments : list of WellSegment
             Cropped segments.
         """
-        length = parse_depth(length)
-        step = parse_depth(step)
+        length = parse_depth(length, check_positive=True, var_name="length")
+        step = parse_depth(step, check_positive=True, var_name="step")
         n_crops, mod = divmod(self.length - length, step)
         n_crops += 1  # The number of crops strictly within the segment
         if not drop_last and mod and self._has_file("logs"):  # Pad logs by length
@@ -1846,9 +1865,10 @@ class WellSegment(AbstractWellSegment):
 
         Parameters
         ----------
-        step : positive int
+        step : positive int or str
             Distance between any two adjacent values in the new index in
-            centimeters.
+            centimeters.  If `str`, must be specified in a <value><units>
+            format (e.g. "10m").
         interpolate : bool, optional
             Specifies whether to interpolate attributes after reindexation.
             Defaults to `False`.
@@ -1860,7 +1880,7 @@ class WellSegment(AbstractWellSegment):
         self : type(self)
             Self with reindexed `attrs`.
         """
-        step = parse_depth(step)
+        step = parse_depth(step, check_positive=True, var_name="step")
         new_index = np.arange(self.depth_from, self.depth_to, step)
         for attr in self._filter_depth_attrs(attrs):
             attr_val = getattr(self, attr)
@@ -2083,8 +2103,9 @@ class WellSegment(AbstractWellSegment):
 
         Parameters
         ----------
-        max_period : positive int
-            Maximum possible shift in centimeters.
+        max_period : positive int or str
+            Maximum possible shift in centimeters. If `str`, must be specified
+            in a <value><units> format (e.g. "10m").
         mnemonics : None or str or list of str
             - If `None`, shift all logs columns.
             - If `str`, shift single column from logs with `mnemonics` name.
@@ -2096,7 +2117,7 @@ class WellSegment(AbstractWellSegment):
         self : type(self)
             Self with shifted logs columns.
         """
-        max_period = parse_depth(max_period)
+        max_period = parse_depth(max_period, check_positive=True, var_name="max_period")
         mnemonics = self.logs.columns if mnemonics is None else to_list(mnemonics)
         max_period = int(max_period / self.logs_step)
         periods = np.random.randint(-max_period, max_period + 1, len(mnemonics))
