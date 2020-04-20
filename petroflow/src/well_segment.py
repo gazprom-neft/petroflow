@@ -836,7 +836,8 @@ class WellSegment(AbstractWellSegment):
         The following checks are performed for `boring_intervals` dataframe:
         1. All the checks from `_validate_fdtd_df`.
         2. If any values of `CORE_RECOVERY` are nan.
-        3. If any values of `CORE_RECOVERY` are greater than the length of the
+        3. If any values of `CORE_RECOVERY` are non-positive.
+        4. If any values of `CORE_RECOVERY` are greater than the length of the
            corresponding interval.
 
         The following checks are performed for `core_lithology` dataframe:
@@ -873,6 +874,11 @@ class WellSegment(AbstractWellSegment):
         nan_recovery_mask = self.boring_intervals["CORE_RECOVERY"].isna()
         if nan_recovery_mask.sum():
             raise DataRegularityError("nan_recovery", self.boring_intervals[nan_recovery_mask])
+
+        # Check if any CORE_RECOVERY values non-positive
+        non_positive_mask = self.boring_intervals["CORE_RECOVERY"] <= 0
+        if non_positive_mask.sum():
+            raise DataRegularityError("non_positive_recovery", self.boring_intervals[non_positive_mask])
 
         # Check if any CORE_RECOVERY values are greater than the length of the corresponding interval
         index = self.boring_intervals.index
@@ -1074,14 +1080,15 @@ class WellSegment(AbstractWellSegment):
         segment_depth_from = segment["DEPTH_FROM"].min()
         segment_depth_to = segment["DEPTH_TO"].max()
         core_len = segment["CORE_RECOVERY"].sum()
+        min_points_per_cm = min_points_per_meter / 100
         for mode in mode_list:
             log_mnemonic, core_mnemonic, core_attr, _ = self._parse_matching_mode(mode)
             if log_mnemonic in self.logs and self._has_file(core_attr) and core_mnemonic in getattr(self, core_attr):
                 well_log = self.logs[log_mnemonic].dropna()
                 core_log = getattr(self, core_attr)[core_mnemonic].dropna()
-                well_log_len = len(well_log[segment_depth_from:segment_depth_to])
-                core_log_len = len(core_log[segment_depth_from:segment_depth_to])
-                if min(well_log_len, core_log_len) >= max(min_points_per_meter * core_len, min_points):
+                well_log_len = len(well_log.loc[segment_depth_from:segment_depth_to])
+                core_log_len = len(core_log.loc[segment_depth_from:segment_depth_to])
+                if min(well_log_len, core_log_len) >= max(min_points_per_cm * core_len, min_points):
                     return mode
         return None
 
@@ -1113,8 +1120,8 @@ class WellSegment(AbstractWellSegment):
         return log
 
     def match_core_logs(self, mode="GK ~ core_logs.GK", split_lithology_intervals=True, gaussian_win_size=None,
-                        min_points=3, min_points_per_meter=1, min_gap=0.5, max_shift=10, delta_from=-8, delta_to=8,
-                        delta_step=0.1, max_iter=50, max_iter_time=0.25, save_report=False):
+                        min_points=3, min_points_per_meter=1, min_gap="0.5m", max_shift="10m", delta_from="-8m",
+                        delta_to="8m", delta_step="0.1m", max_iter=100, max_iter_time=0.25, save_report=False):
         """Perform core-to-log matching by shifting core samples in order to
         maximize correlation between well and core logs.
 
@@ -1171,8 +1178,11 @@ class WellSegment(AbstractWellSegment):
             Matched well segment with updated core depths. Changes all
             core-related depths inplace.
         """
-        if max_shift <= 0:
-            raise ValueError("max_shift must be positive")
+        min_gap = parse_depth(min_gap, check_positive=True, var_name="min_gap")
+        max_shift = parse_depth(max_shift, check_positive=True, var_name="max_shift")
+        delta_from = parse_depth(delta_from, var_name="delta_from")
+        delta_to = parse_depth(delta_to, var_name="delta_to")
+        delta_step = parse_depth(delta_step, check_positive=True, var_name="max_shift")
         if delta_from > delta_to:
             raise ValueError("delta_to must be greater than delta_from")
         if max(np.abs(delta_from), np.abs(delta_to)) > max_shift:
@@ -1227,10 +1237,10 @@ class WellSegment(AbstractWellSegment):
 
                 log_mnemonic, core_mnemonic, core_attr, sign = self._parse_matching_mode(mode)
                 well_log = self.logs[log_mnemonic].dropna()
-                well_log = well_log[sequence_depth_from - max_shift : sequence_depth_to + max_shift]
+                well_log = well_log.loc[sequence_depth_from - max_shift : sequence_depth_to + max_shift]
                 well_log = self._blur_log(well_log, gaussian_win_size)
                 core_log = sign * getattr(self, core_attr)[core_mnemonic].dropna()
-                core_log = core_log[sequence_depth_from:sequence_depth_to]
+                core_log = core_log.loc[sequence_depth_from:sequence_depth_to]
                 core_log = self._blur_log(core_log, gaussian_win_size)
 
                 shifts = match_boring_sequence(sequence, lithology_intervals, well_log, core_log,

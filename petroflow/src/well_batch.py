@@ -64,7 +64,12 @@ class WellBatch(Batch, AbstractWell, metaclass=WellDelegatingMeta):
     """
 
     components = ("wells",)
-    targets = defaultdict(lambda: "threads")  # inbatch_parallel target depending on action name
+
+    # inbatch_parallel target depending on action name
+    targets = defaultdict(
+        lambda: "threads",
+        match_core_logs="for",
+    )
 
     def __init__(self, index, *args, preloaded=None, **kwargs):
         super().__init__(index, *args, preloaded=preloaded, **kwargs)

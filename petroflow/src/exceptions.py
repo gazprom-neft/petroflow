@@ -18,6 +18,7 @@ class DataRegularityError(SkipWellException):
 
         # boring_intervals errors
         "nan_recovery": "Missing `CORE_RECOVERY` values in boring_intervals:\n\n{}",
+        "non_positive_recovery": "`CORE_RECOVERY` values must be positive:\n\n{}",
         "wrong_recovery": "`CORE_RECOVERY` is greater than the length of the corresponding interval:\n\n{}",
 
         # lithology_intervals errors
