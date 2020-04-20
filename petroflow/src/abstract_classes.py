@@ -96,7 +96,7 @@ class AbstractWellSegment(metaclass=ABCMeta):
         pass
 
     @abstractmethod
-    def shift_logs(self):
+    def random_shift(self):
         pass
 
 

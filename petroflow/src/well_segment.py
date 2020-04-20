@@ -7,6 +7,7 @@ import re
 import json
 import base64
 import shutil
+import warnings
 from copy import copy, deepcopy
 from glob import glob
 from functools import reduce
@@ -614,7 +615,7 @@ class WellSegment(AbstractWellSegment):
             if attr_val is None:
                 try:
                     shutil.copy2(self._get_full_name(self.path, attr), path)
-                except Exception: # pylint: disable=broad-except
+                except Exception:  # pylint: disable=broad-except
                     pass
             else:
                 if attr not in self.attrs_no_index:
@@ -1940,9 +1941,8 @@ class WellSegment(AbstractWellSegment):
             return []
 
         borders = not_nan_mask[not_nan_mask ^ not_nan_mask.shift(1)].index.tolist()
-        # If last mask element is True (segment ends with not nan value in logs)
-        # then the xor trick above misses the last slicing border and therefore
-        # None should be added so the last slice could be done as `self[a:None]`
+        # If last mask element is True (segment ends with not nan value in logs) then the xor trick above misses
+        # the last slicing border and therefore None should be added so the last slice could be done as `self[a:None]`
         if not_nan_mask.iloc[-1]:
             borders.append(None)
         borders = zip(borders[0::2], borders[1::2])
@@ -2059,34 +2059,32 @@ class WellSegment(AbstractWellSegment):
             setattr(self, _dst, img)
         return self
 
-    def shift_logs(self, max_period, mnemonics=None):
-        """Shift every `logs` column from `mnemonics` by a random step sampled
-        from discrete uniform distribution in [-`max_period`, `max_period`].
-        All new resulting empty positions are filled with first/last
-        column value depending on shift direction.
+    @process_columns
+    def random_shift(self, df, max_shift):
+        """Shift each dataframe column by a step sampled from discrete uniform
+        distribution in [-`max_period`, `max_period`]. Resulted empty positions
+        are filled with first/last column value depending on shift direction.
 
         Parameters
         ----------
-        max_period : positive int or str
+        max_shift : positive int or str
             Maximum possible shift in centimeters. If `str`, must be specified
             in a <value><units> format (e.g. "10m").
-        mnemonics : None or str or list of str
-            - If `None`, shift all logs columns.
-            - If `str`, shift single column from logs with `mnemonics` name.
-            - If `list`, shift all logs columnns with names in `mnemonics`.
-            Defaults to `None`.
 
         Returns
         -------
-        self : type(self)
-            Self with shifted logs columns.
+        shifted_df : pd.DataFrame
+            Dataframe with randomly shifted columns.
         """
-        max_period = parse_depth(max_period, check_positive=True, var_name="max_period")
-        mnemonics = self.logs.columns if mnemonics is None else to_list(mnemonics)
-        max_period = int(max_period / self.logs_step)
-        periods = np.random.randint(-max_period, max_period + 1, len(mnemonics))
-        for mnemonic, period in zip(mnemonics, periods):
-            fill_index = 0 if period > 0 else -1
-            fill_value = self.logs[mnemonic].iloc[fill_index]
-            self.logs[mnemonic] = self.logs[mnemonic].shift(periods=period, fill_value=fill_value)
-        return self
+        shifted_df = df.copy()
+        df_step = shifted_df.index[1] - shifted_df.index[0]
+        max_shift = parse_depth(max_shift, check_positive=True, var_name="max_shift")
+        max_shift = max_shift // df_step
+        if max_shift == 0:
+            warnings.warn('Passed `max_shift` is smaller then dataframe index step and therefore no shift was applied.')
+        for column, series in df.iteritems():
+            period = np.random.randint(-max_shift, max_shift + 1)
+            if period != 0:
+                fill_value = series.iloc[0] if period > 0 else series.iloc[-1]
+                shifted_df[column] = series.shift(periods=period, fill_value=fill_value)
+        return shifted_df
