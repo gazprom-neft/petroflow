@@ -1710,16 +1710,16 @@ class WellSegment(AbstractWellSegment):
         column : str
             Name of the column to transform.
         mapping : dict or None
-            Mapping for column values. If `None`, original attribute values
-            will be kept in the mask. Defaults to `None`.
+            Mapping to numeric values, required if data in `src[column]`
+            is not numerical itself. Defaults to `None`.
         mode : 'logs' or 'core'
             A mode, specifying the length of computed mask. If 'logs', mask
             lenght will match the length of well logs. If 'core', mask length
             will match the heigth of `core_dl` in pixels. Defaults to
             `'logs'`.
-        dst : str, optional
+        dst : str
             `WellSegment` attribute to save the mask to. Defaults to `mask`.
-        default : float, optional
+        default : float
             Default value for mask if `src` doesn't contain information for
             corresponding depth. Defaults to `numpy.nan`.
         bad_values : list of str, optional
@@ -1732,6 +1732,7 @@ class WellSegment(AbstractWellSegment):
             both backward and forward with the closest value that is not nan.
             In other words, if there is a gap with more than this number
             of consecutive nans, it will only be partially filled.
+            If not specified, nan values are not filled.
 
         Returns
         -------
