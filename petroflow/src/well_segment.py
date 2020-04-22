@@ -1952,14 +1952,14 @@ class WellSegment(AbstractWellSegment):
             setattr(self, "_" + attr, val)
         return self
 
-    def drop_nans(self, logs=None):
+    def drop_nans(self, mnemonics=None):
         """Split a well into contiguous segments, that do not contain `nan`
-        values in logs, specified in `logs`.
+        values in logs, specified in `mnemonics`.
 
         Parameters
         ----------
         mnemonics : None or int or str or list of str
-            - If `None`, create segments without `nan` values for all logs.
+            - If `None`, create segments without `nan` values for all mnemonics.
             - If `int`, create segments so that each row of logs has at least
               `mnemonics` not-nan values.
             - If `str`, create segment without `nan` values in `mnemonics`
