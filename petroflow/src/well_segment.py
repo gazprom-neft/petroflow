@@ -1963,7 +1963,7 @@ class WellSegment(AbstractWellSegment):
             setattr(self, "_" + attr, val)
         return self
 
-    def drop_nans(self, logs=None):
+    def drop_nans(self, mnemonics=None):
         """Split a well into contiguous segments, that do not contain `nan`
         values in logs, specified in `logs`.
 
