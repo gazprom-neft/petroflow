@@ -6,6 +6,7 @@ import functools
 import pint
 import numpy as np
 
+from numba import njit
 
 UNIT_REGISTRY = pint.UnitRegistry()
 
@@ -92,3 +93,10 @@ def parse_depth(depth, check_positive=False, var_name="Depth/length"):
     if check_positive and depth <= 0:
         raise ValueError("{} must be positive".format(var_name))
     return depth
+
+
+@njit
+def insert_intervals(arr, starts, ends, values):
+    for start, end, value in zip(starts, ends, values):
+        arr[start:end] = value
+    return arr
