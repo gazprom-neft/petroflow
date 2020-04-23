@@ -2103,6 +2103,6 @@ class WellSegment(AbstractWellSegment):
         res : pd.DataFrame
             Dataframe of one-hot encoded df columns.
         """
-        columns = ['{}_{}'.format(column, category) for num, column in enumerate(df) for category in encoder.categories_[num]]
+        columns = ['{}_{}'.format(col, category) for num, col in enumerate(df) for category in encoder.categories_[num]]
         encoded = encoder.transform(df).toarray() if encoder.sparse else encoder.transform(df)
         return pd.DataFrame(index=df.index, data=encoded, columns=columns)
