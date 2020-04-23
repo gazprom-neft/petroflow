@@ -1,11 +1,11 @@
 """Miscellaneous utility functions."""
 
 import re
+import warnings
 import functools
 
 import pint
 import numpy as np
-
 
 UNIT_REGISTRY = pint.UnitRegistry()
 
@@ -17,11 +17,22 @@ def to_list(obj):
     """
     return np.array(obj).ravel().tolist()
 
-
-def process_columns(method):
+def process_columns(*dec_args, **dec_kwargs):
     """Decorate a `method` so that it is applied to `src` columns of an `attr`
-    well attribute and stores the result in `dst` columns of the same
-    attribute.
+    well attribute and store the result in `dst` columns of the same attribute.
+
+    Parameters
+    ----------
+    dec_args
+        0 : callable
+            Method to decorate (passed automatically if decorator applied
+            additional argument `preserve_column_names`)
+        No explicit args allowed.
+    dec_kwargs
+        preserve_column_names : bool
+            Whether preserve column names of the dataframe returned by
+            class method when saving final result.
+        Only one named argument allowed.
 
     Adds the following additional arguments to the decorated method:
     ----------------------------------------------------------------
@@ -38,25 +49,46 @@ def process_columns(method):
         Specifies whether to drop `src` columns from `attr` after the method
         call. Defaults to `False`.
     """
-    @functools.wraps(method)
-    def wrapper(self, *args, attr="logs", src=None, except_src=None, dst=None, drop_src=False, **kwargs):
-        df = getattr(self, attr)
-        if (src is not None) and (except_src is not None):
-            raise ValueError("src and except_src can't be specified together")
-        if src is not None:
-            src = to_list(src)
-        elif except_src is not None:
-            # Calculate the difference between df.columns and except_src, preserving the order of columns in df
-            except_src = np.unique(except_src)
-            src = np.setdiff1d(df.columns, except_src, assume_unique=True)
-        else:
-            src = df.columns
-        dst = src if dst is None else to_list(dst)
-        df[dst] = method(self, df[src], *args, **kwargs)
-        if drop_src:
-            df.drop(set(src) - set(dst), axis=1, inplace=True)
-        return self
-    return wrapper
+    def wrapper_caller(method):
+        @functools.wraps(method)
+        def wrapper(self, *args, attr="logs", src=None, except_src=None, dst=None, drop_src=False, **kwargs):
+            df = getattr(self, attr)
+            if (src is not None) and (except_src is not None):
+                raise ValueError("src and except_src can't be specified together")
+            if src is not None:
+                src = to_list(src)
+            elif except_src is not None:
+                # Calculate the difference between df.columns and except_src, preserving the order of columns in df
+                except_src = np.unique(except_src)
+                src = np.setdiff1d(df.columns, except_src, assume_unique=True)
+            else:
+                src = df.columns
+
+            preserve_column_names = kwargs.pop('preserve_column_names', preserve_column_names_)
+            result = method(self, df[src], *args, **kwargs)
+            if dst is None:
+                dst = result.columns if preserve_column_names else src
+            else:
+                if preserve_column_names:
+                    warnings.warn('Column names of dataframe returned by {} are overwritten by your custom `dst`. '
+                                  'To suppress this warning, explicitly pass `preserve_column_names=False` to the '
+                                  'method call.'.format(method.__qualname__))
+                dst = to_list(dst)
+            df[dst] = result
+
+            if drop_src:
+                df.drop(set(src) - set(dst), axis=1, inplace=True)
+            return self
+        return wrapper
+
+    preserve_column_names_ = dec_kwargs.pop('preserve_column_names', False)
+    if len(dec_args) == 1 and callable(dec_args[0]):
+        return wrapper_caller(method=dec_args[0])
+    elif len(dec_args) != 0:
+        raise ValueError("Decorator `process_columns` takes only named arguments")
+    elif len(dec_kwargs) > 1:
+        raise TypeError("Decorator `process_columns` takes exactly one named argument")
+    return wrapper_caller
 
 
 def parse_depth(depth, check_positive=False, var_name="Depth/length"):

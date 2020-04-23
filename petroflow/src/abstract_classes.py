@@ -99,6 +99,10 @@ class AbstractWellSegment(metaclass=ABCMeta):
     def random_shift(self):
         pass
 
+    @abstractmethod
+    def one_hot_encode(self):
+        pass
+
 
 class AbstractWell(AbstractWellSegment):
     """Abstract class to check that all nesessary methods are implemented in

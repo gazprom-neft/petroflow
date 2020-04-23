@@ -2088,3 +2088,21 @@ class WellSegment(AbstractWellSegment):
                 fill_value = series.iloc[0] if period > 0 else series.iloc[-1]
                 shifted_df[column] = series.shift(periods=period, fill_value=fill_value)
         return shifted_df
+
+    @process_columns(preserve_column_names=True)
+    def one_hot_encode(self, df, encoder):
+        """One-hot encode each dataframe column.
+
+        Parameters
+        ----------
+        encoder : callable
+            Fitted sklearn.preprocessing.OneHotEncoder
+
+        Returns
+        -------
+        res : pd.DataFrame
+            Dataframe of one-hot encoded df columns.
+        """
+        columns = ['{}_{}'.format(column, category) for num, column in enumerate(df) for category in encoder.categories_[num]]
+        encoded = encoder.transform(df).toarray() if encoder.sparse else encoder.transform(df)
+        return pd.DataFrame(index=df.index, data=encoded, columns=columns)
