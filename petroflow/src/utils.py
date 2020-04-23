@@ -84,9 +84,9 @@ def process_columns(*dec_args, **dec_kwargs):
     preserve_column_names_ = dec_kwargs.pop('preserve_column_names', False)
     if len(dec_args) == 1 and callable(dec_args[0]):
         return wrapper_caller(method=dec_args[0])
-    elif len(dec_args) != 0:
+    if len(dec_args) != 0:
         raise ValueError("Decorator `process_columns` takes only named arguments")
-    elif len(dec_kwargs) > 1:
+    if len(dec_kwargs) > 1:
         raise TypeError("Decorator `process_columns` takes exactly one named argument")
     return wrapper_caller
 
