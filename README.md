@@ -19,7 +19,7 @@ Main features:
     * properties of core plugs
     * lithological description of core samples
 * perform core-to-log matching
-* train valrious deep learning models, e.g. to:
+* train various deep learning models, e.g. to:
     * predict porosity by well logs
     * detect mismatched DL and UV core images
     * recover missing logs by the available ones
