@@ -1016,10 +1016,11 @@ class WellSegment(AbstractWellSegment):
         core_logs_list = []
         for _, (depth_from, depth_to, mode) in boring_sequences.iterrows():
             _, core_mnemonic, core_attr, _ = self._parse_matching_mode(mode)
-            core_log_segment = getattr(self, core_attr)[core_mnemonic].dropna()[depth_from:depth_to]
+            core_log_segment = getattr(self, core_attr)[core_mnemonic].dropna().loc[depth_from:depth_to]
+            core_log_segment.index /= 100
             core_logs_list.append(core_log_segment.to_frame(name=mode))
         core_logs = pd.concat(core_logs_list)
-        core_logs.index.rename("Увязанная глубина образца", inplace=True)
+        core_logs.index.rename("Matched depth of a core plug", inplace=True)
         core_logs.reset_index(inplace=True)
 
         boring_intervals = self._boring_intervals_deltas.reset_index()
@@ -1027,29 +1028,31 @@ class WellSegment(AbstractWellSegment):
         boring_intervals["DEPTH_TO_DELTA"] = boring_intervals["DEPTH_TO"] + boring_intervals["DELTA"]
         boring_intervals = boring_intervals[["DEPTH_FROM", "DEPTH_TO", "DEPTH_FROM_DELTA", "DEPTH_TO_DELTA"]]
         boring_intervals.columns = [
-            "Кровля интервала долбления",
-            "Подошва интервала долбления",
-            "Увязанная кровля интервала долбления",
-            "Увязанная подошва интервала долбления"
+            "Top of a boring interval",
+            "Bottom of a boring interval",
+            "Matched top of a boring interval",
+            "Matched bottom of a boring interval"
         ]
-        boring_intervals = between_join(core_logs, boring_intervals, left_on="Увязанная глубина образца",
-                                        right_on=("Увязанная кровля интервала долбления",
-                                                  "Увязанная подошва интервала долбления"))
+        boring_intervals /= 100
+        boring_intervals = between_join(core_logs, boring_intervals, left_on="Matched depth of a core plug",
+                                        right_on=("Matched top of a boring interval",
+                                                  "Matched bottom of a boring interval"))
         boring_intervals.to_csv(os.path.join(self.path, self.name + "_boring_intervals_matching.csv"),
-                                index=False)
+                                index=False, float_format="%.2f")
 
         lithology_intervals = self._core_lithology_deltas.reset_index()
         lithology_intervals["DEPTH_FROM_DELTA"] = lithology_intervals["DEPTH_FROM"] + lithology_intervals["DELTA"]
         lithology_intervals["DEPTH_TO_DELTA"] = lithology_intervals["DEPTH_TO"] + lithology_intervals["DELTA"]
         lithology_intervals = lithology_intervals[["DEPTH_FROM", "DEPTH_TO", "DEPTH_FROM_DELTA", "DEPTH_TO_DELTA"]]
         lithology_intervals.columns = [
-            "Кровля интервала литописания",
-            "Подошва интервала литописания",
-            "Увязанная кровля интервала литописания",
-            "Увязанная подошва интервала литописания"
+            "Top of a lithology interval",
+            "Bottom of a lithology interval",
+            "Matched top of a lithology interval",
+            "Matched bottom of a lithology interval"
         ]
+        lithology_intervals /= 100
         lithology_intervals.to_csv(os.path.join(self.path, self.name + "_lithology_intervals_matching.csv"),
-                                   index=False)
+                                   index=False, float_format="%.2f")
 
     @staticmethod
     def _parse_matching_mode(mode):
