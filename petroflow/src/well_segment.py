@@ -651,7 +651,7 @@ class WellSegment(AbstractWellSegment):
 
     def _plot_core(self, subplot_titles, traces, images, plot_core, image_dir, title):
         """Create a trace with core images if `plot_core` is `True` and
-        `image_dir` exists in a well dir and return the index of the created
+        `image_dir` exists in a well dir. Return the index of the created
         subplot.
 
         Note, that the method has side effects: it updates `subplot_titles`,
@@ -703,7 +703,7 @@ class WellSegment(AbstractWellSegment):
 
         Returns
         -------
-        self : AbstractWellSegment
+        self : type(self)
             Self unchanged.
         """
         init_notebook_mode(connected=True)
@@ -1176,9 +1176,9 @@ class WellSegment(AbstractWellSegment):
 
         Returns
         -------
-        well : AbstractWellSegment
-            Matched well segment with updated core depths. Changes all
-            core-related depths inplace.
+        self : type(self)
+            Self with core-to-log matching performed. Changes all core-related
+            depths inplace.
         """
         min_gap = parse_depth(min_gap, check_positive=True, var_name="min_gap")
         max_shift = parse_depth(max_shift, check_positive=True, var_name="max_shift")
