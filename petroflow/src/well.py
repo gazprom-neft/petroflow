@@ -330,7 +330,7 @@ class Well(AbstractWell, metaclass=SegmentDelegatingMeta):
     def _check_segment_lengths(self, length):
         """Check that all segments of `self` are not shorter than `length`."""
         if any(seg.length < length for seg in self.iter_level()):
-            err_msg = "A segment, shorter than {} exists. Call drop_short_segments before random_crop.".format(length)
+            err_msg = "A segment, shorter than {} exists. Try calling drop_short_segments first.".format(length)
             raise ValueError(err_msg)
 
     def crop(self, length, step, drop_last=False, fill_value=0):
