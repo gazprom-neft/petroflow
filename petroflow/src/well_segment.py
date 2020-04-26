@@ -1198,7 +1198,7 @@ class WellSegment(AbstractWellSegment):
         bi_depth_from = boring_intervals["DEPTH_FROM"]
         bi_depth_to = boring_intervals["DEPTH_TO"]
         boring_intervals["DEPTH_TO"] = np.where((bi_depth_from.shift(-1) - bi_depth_to) < min_gap,
-                                                bi_depth_from.shift(-1), bi_depth_to)
+                                                bi_depth_from.shift(-1), bi_depth_to).astype(bi_depth_to.dtype)
         self._boring_intervals = boring_intervals.set_index(["DEPTH_FROM", "DEPTH_TO"])
         self._calc_boring_sequences()
 
