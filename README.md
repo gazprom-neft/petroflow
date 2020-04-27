@@ -104,7 +104,7 @@ When cloning repo from GitHub use flag `--recursive` to make sure that `BatchFlo
 Please cite `PetroFlow` in your publications if it helps your research.
 
 ```
-Khudorozhkov R., Kuvaev A., Kozhevin A. PetroFlow library for data science research of well data. 2019.
+Khudorozhkov R., Kuvaev A., Kozhevin A., Goryachev S. PetroFlow library for data science research of well data. 2019.
 ```
 
 ```
