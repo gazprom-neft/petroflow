@@ -109,7 +109,7 @@ Khudorozhkov R., Kuvaev A., Kozhevin A., Goryachev S. PetroFlow library for data
 
 ```
 @misc{
-  author       = {R. Khudorozhkov and A. Kuvaev and A. Kozhevin},
+  author       = {R. Khudorozhkov and A. Kuvaev and A. Kozhevin and S. Goryachev},
   title        = {PetroFlow library for data science research of well data},
   year         = 2019
 }
