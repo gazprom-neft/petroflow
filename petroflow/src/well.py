@@ -542,7 +542,7 @@ class Well(AbstractWell, metaclass=SegmentDelegatingMeta):
                 setattr(seg_0, "_" + attr, attr_val_0)
 
             for attr in aggregate_attrs:
-                attr_val_0 = getattr(seg_0, '_' + attr)
+                attr_val_0 = getattr(seg_0, "_" + attr)
                 attr_val_0 = attr_val_0.groupby(level=0).agg(func)
 
                 # Add NaN values to `logs`.
