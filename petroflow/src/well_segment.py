@@ -1417,15 +1417,20 @@ class WellSegment(AbstractWellSegment):
         plot_fn(fig)
         return self
 
-    def add_depth_log(self):
+    def add_depth_log(self, dst='DEPTH'):
         """Copy the index of `self.logs` to its column `DEPTH`.
+
+        Parameters
+        ----------
+        dst : str
+            Specify logs dst column to save depth data. Defaults to 'DEPTH'.
 
         Returns
         -------
         self : type(self)
             Self with created depth log.
         """
-        self.logs["DEPTH"] = self.logs.index
+        self.logs[dst] = self.logs.index
         return self
 
     def drop_logs(self, mnemonics):
@@ -2073,8 +2078,8 @@ class WellSegment(AbstractWellSegment):
 
         Returns
         -------
-        shifted_df : pd.DataFrame
-            Dataframe with randomly shifted columns.
+        self : type(self)
+            Self with randomly shifted logs columns.
         """
         shifted_df = df.copy()
         df_step = shifted_df.index[1] - shifted_df.index[0]
@@ -2100,9 +2105,10 @@ class WellSegment(AbstractWellSegment):
 
         Returns
         -------
-        res : pd.DataFrame
-            Dataframe of one-hot encoded df columns.
+        self : type(self)
+            Self with one-hot encoded logs columns.
         """
+        _ = self
         columns = ['{}_{}'.format(col, category) for num, col in enumerate(df) for category in encoder.categories_[num]]
         encoded = encoder.transform(df).toarray() if encoder.sparse else encoder.transform(df)
         return pd.DataFrame(index=df.index, data=encoded, columns=columns)
