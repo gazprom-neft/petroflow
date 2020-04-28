@@ -459,7 +459,7 @@ class Well(AbstractWell, metaclass=SegmentDelegatingMeta):
         total = np.zeros((agg_array_height_pix, *attr_val_shape[1:]), dtype=int)
         background = np.full_like(total, np.nan, dtype=np.double)
         for segment in self.iter_level():
-            attr_val = getattr(segment, '_' + attr)
+            attr_val = getattr(segment, "_" + attr)
             segment_place = slice(round((segment.depth_from - self.depth_from) * pixels_per_cm),
                                   round((segment.depth_to - self.depth_from) * pixels_per_cm))
 
