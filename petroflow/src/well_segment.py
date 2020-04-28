@@ -517,7 +517,8 @@ class WellSegment(AbstractWellSegment):
     def _cm_to_pixels(self, length):
         """Convert centimeters to pixels given conversion ratio in
         `self.pixels_per_cm`."""
-        return round(length * self.pixels_per_cm)
+        # int is required to correctly handle numpy float dtypes, which are not converted to int by round
+        return int(round(length * self.pixels_per_cm))
 
     def load_core(self, core_width=None, pixels_per_cm=None):
         """Load core images in daylight and ultraviolet.
