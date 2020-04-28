@@ -1701,7 +1701,7 @@ class WellSegment(AbstractWellSegment):
         crops = [self[start:start+length] for start in crops_starts]
         return crops
 
-    def create_mask(self, src, column, mapping=None, mode='logs', default=np.nan, dst='mask'):
+    def create_mask(self, src, column, mapping=None, mode="logs", default=np.nan, dst="mask"):
         """Transform a column from some `WellSegment` attribute into a mask
         correponding to a well log or to a core image.
 
