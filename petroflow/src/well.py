@@ -454,7 +454,7 @@ class Well(AbstractWell, metaclass=SegmentDelegatingMeta):
 
         pixels_per_cm = self.iter_level()[0].pixels_per_cm
         agg_array_height_pix = round((self.depth_to - self.depth_from) * pixels_per_cm)
-        attr_val_shape = getattr(self.iter_level()[0], '_' + attr).shape
+        attr_val_shape = getattr(self.iter_level()[0], "_" + attr).shape
 
         total = np.zeros((agg_array_height_pix, *attr_val_shape[1:]), dtype=int)
         background = np.full_like(total, np.nan, dtype=np.double)
