@@ -499,7 +499,7 @@ class Well(AbstractWell, metaclass=SegmentDelegatingMeta):
     def _check_segment_lengths(self, length):
         """Check that all segments of `self` are not shorter than `length`."""
         if any(seg.length < length for seg in self.iter_level()):
-            err_msg = "A segment, shorter than {} exists. Call drop_short_segments before random_crop.".format(length)
+            err_msg = "A segment, shorter than {} exists. Try calling drop_short_segments first.".format(length)
             raise ValueError(err_msg)
 
     def crop(self, length, step, drop_last=False, fill_value=0):
@@ -623,12 +623,12 @@ class Well(AbstractWell, metaclass=SegmentDelegatingMeta):
 
         pixels_per_cm = self.iter_level()[0].pixels_per_cm
         agg_array_height_pix = round((self.depth_to - self.depth_from) * pixels_per_cm)
-        attr_val_shape = getattr(self.iter_level()[0], '_' + attr).shape
+        attr_val_shape = getattr(self.iter_level()[0], "_" + attr).shape
 
         total = np.zeros((agg_array_height_pix, *attr_val_shape[1:]), dtype=int)
         background = np.full_like(total, np.nan, dtype=np.double)
         for segment in self.iter_level():
-            attr_val = getattr(segment, '_' + attr)
+            attr_val = getattr(segment, "_" + attr)
             segment_place = slice(round((segment.depth_from - self.depth_from) * pixels_per_cm),
                                   round((segment.depth_to - self.depth_from) * pixels_per_cm))
 
@@ -711,7 +711,7 @@ class Well(AbstractWell, metaclass=SegmentDelegatingMeta):
                 setattr(seg_0, "_" + attr, attr_val_0)
 
             for attr in aggregate_attrs:
-                attr_val_0 = getattr(seg_0, '_' + attr)
+                attr_val_0 = getattr(seg_0, "_" + attr)
                 attr_val_0 = attr_val_0.groupby(level=0).agg(func)
 
                 # Add NaN values to `logs`.

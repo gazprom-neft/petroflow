@@ -5,12 +5,12 @@ A petrophysicist works with a huge amount of different well data stored in vario
 ## Format description
 
 Data for each well must be stored in a separate directory, containing at least a single mandatory `meta.json` file with the following structure:
-```json
+```python
 {
     "name": "well_name",
     "field": "well_field",
-    "depth_from": 100,  // wellhead depth in centimeters
-    "depth_to": 300000  // bottom hole depth in centimeters
+    "depth_from": 100,  # wellhead depth in centimeters
+    "depth_to": 300000  # bottom hole depth in centimeters
 }
 ```
 
