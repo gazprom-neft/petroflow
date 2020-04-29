@@ -22,24 +22,6 @@ def create_zero_shift(depth_from, depth_to):
     return zero_shift
 
 
-def trunc(x, n_decimals=0):
-    """Return integer parts and `n_decimals` decimal places of values in `x`.
-
-    Parameters
-    ----------
-    values : numpy.ndarray
-        An array to truncate.
-    n_decimals : non-negative int
-        The number of decimal places to keep. Defauls to 0.
-
-    Returns
-    -------
-    values : numpy.ndarray
-        Truncated array.
-    """
-    return np.trunc(x * 10**n_decimals) / (10**n_decimals)
-
-
 def select_contigious_intervals(df, max_gap=0):
     """Split a depth-ranged `DataFrame` into a list of `DataFrame`s with no
     more than `max_gap` gap in depth ranges in each.
@@ -81,7 +63,7 @@ def generate_init_deltas(bi_n_lith_ints, bi_gap_lengths, sequence_delta_from, se
     bi_n_lith_ints : list of int
         The number of lithology intervals in each boring interval of the
         sequence.
-    bi_gap_lengths : list of float
+    bi_gap_lengths : list of non-negative int
         The length of unrecovered core from each boring interval of the
         sequence.
     sequence_delta_from : float
@@ -216,7 +198,7 @@ def match_boring_sequence(boring_sequence, lithology_intervals, well_log, core_l
         bi_gap_lengths.append(max(0, bi_depth_to - bi_depth_from - recovery))
 
         for _, (li_depth_from, li_depth_to) in sequence_lithology_intervals.iterrows():
-            log_slice = core_log[li_depth_from:li_depth_to]
+            log_slice = core_log.loc[li_depth_from:li_depth_to]
             core_depths.append(log_slice.index.values)
             core_logs.append(log_slice.values)
 
@@ -261,7 +243,7 @@ def match_boring_sequence(boring_sequence, lithology_intervals, well_log, core_l
             kwargs = {
                 "args": (bi_n_lith_ints, core_depths, log_interpolator, core_logs),
                 "method": "SLSQP",
-                "options": {"maxiter": max_iter, "ftol": 1e-3},
+                "options": {"maxiter": max_iter, "ftol": 1e-6, "eps": 1e-3},
                 "constraints": constraints,
             }
             futures.append(pool.apply_async(minimize, args=args, kwds=kwargs))
@@ -276,8 +258,8 @@ def match_boring_sequence(boring_sequence, lithology_intervals, well_log, core_l
             future_loss, stats = loss(future_deltas, bi_n_lith_ints, core_depths, log_interpolator, core_logs,
                                       return_stats=True)
 
-            sequence_delta = trunc(future_deltas[0], 2)
-            interval_deltas = np.clip(trunc(future_deltas[1:], 2), 0, None)
+            sequence_delta = int(np.rint(future_deltas[0]))
+            interval_deltas = np.clip(np.rint(future_deltas[1:]), 0, None).astype(int)
             interval_deltas = [np.cumsum(d) for d in np.split(interval_deltas, np.cumsum(bi_n_lith_ints)[:-1])]
             interval_deltas = np.concatenate(interval_deltas) + sequence_delta
 

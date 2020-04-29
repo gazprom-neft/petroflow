@@ -28,7 +28,11 @@ class AbstractWellSegment(metaclass=ABCMeta):
         pass
 
     @abstractmethod
-    def check_regularity(self):
+    def validate_core(self):
+        pass
+
+    @abstractmethod
+    def validate_samples(self):
         pass
 
     @abstractmethod
@@ -57,6 +61,10 @@ class AbstractWellSegment(metaclass=ABCMeta):
 
     @abstractmethod
     def rename_logs(self):
+        pass
+
+    @abstractmethod
+    def create_mask(self):
         pass
 
     @abstractmethod
@@ -91,6 +99,7 @@ class AbstractWellSegment(metaclass=ABCMeta):
     def shift_logs(self):
         pass
 
+
 class AbstractWell(AbstractWellSegment):
     """Abstract class to check that all nesessary methods are implemented in
     `Well` and `WellBatch` classes."""
@@ -124,10 +133,6 @@ class AbstractWell(AbstractWellSegment):
 
     @abstractmethod
     def drop_nans(self):
-        pass
-
-    @abstractmethod
-    def create_mask(self):
         pass
 
     @abstractmethod

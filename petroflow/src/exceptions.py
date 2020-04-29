@@ -1,21 +1,4 @@
-"""Contains specific Exceptions."""
-
-
-STARTERS = {
-    "boring_nans" : "Missing CORE_RECOVERY values in boring_intervals:\n\n{}",
-    "boring_unfits" : "CORE_RECOVERY is bigger than CORE_INTERVAL in boring_intervals:\n\n{}",
-    "boring_overlaps" : "Overlaping intervals found in boring_intervals:\n\n{}",
-    "boring_nonincreasing" : "DEPTH_FROM is bigger than the subsequent DEPTH_FROM in boring_intervals:\n\n{}",
-    "boring_disordered" : "DEPTH_FROM is bigger than DEPTH_TO in boring_intervals:\n\n{}",
-    "lithology_overlaps" : "Overlaping intervals found in core_lithology:\n\n{}",
-    "lithology_nonincreasing" : "DEPTH_FROM is bigger than the subsequent DEPTH_FROM in core_lithology:\n\n{}",
-    "lithology_disordered" : "DEPTH_FROM is bigger than DEPTH_TO in core_lithology:\n\n{}",
-    "lithology_exclusions" : "Following core_lithology intervals are not included in any of boring_intervals:\n\n{}",
-    "lithology_unfits" : "Calculated CORE_TOTAL is greater than corresponding CORE_RECOVERY in boring_intervals:\n\n{}",
-    "missing_files" : "Following files from {} are missing in {}:\n\n{}",
-    "duplicate_files" : "Duplicate file names in {}",
-    "different_extensions" : "File extensions from {} have different extension length"
-    }
+"""Contains package-specific exceptions."""
 
 
 class SkipWellException(Exception):
@@ -24,7 +7,32 @@ class SkipWellException(Exception):
 
 class DataRegularityError(SkipWellException):
     """Raised if any data regularity checks are not passed."""
-    def __init__(self, error_id, *args):
-        starter = STARTERS.get(error_id, error_id)
-        message = starter.format(*args)
+
+    error_templates = {
+        # general errors
+        "non_int_index": "Index must have int type:\n\n{}",
+        "non_unique_index": "Index is not unique:\n\n{}",
+        "non_increasing_index": "Index is not monotonically increasing:\n\n{}",
+        "disordered_index": "DEPTH_FROM is greater than DEPTH_TO:\n\n{}",
+        "overlapping_index": "Overlaping intervals found in index:\n\n{}",
+
+        # boring_intervals errors
+        "nan_recovery": "Missing `CORE_RECOVERY` values in boring_intervals:\n\n{}",
+        "non_positive_recovery": "`CORE_RECOVERY` values must be positive:\n\n{}",
+        "wrong_recovery": "`CORE_RECOVERY` is greater than the length of the corresponding interval:\n\n{}",
+
+        # lithology_intervals errors
+        "lithology_ranges": ("The following lithology intervals are not included in any of the boring "
+                             "intervals:\n\n{}"),
+        "lithology_length": ("Total length of all lithology intervals of a boring interval does not match "
+                             "its core recovery:\n\n{}"),
+
+        # samples errors
+        "duplicated_files": "Duplicated file names in {}",
+        "missing_samples_dirs": "Both samples_dl and samples_uv dirs are missing",
+    }
+
+    def __init__(self, error_type, *args):
+        message = self.error_templates.get(error_type, error_type)
+        message = message.format(*args)
         super().__init__(message)

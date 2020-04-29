@@ -45,7 +45,10 @@ def cross_join(left, right, suffixes=("_left", "_right")):
     """
     left["_TMP_KEY"] = 1
     right["_TMP_KEY"] = 1
-    return pd.merge(left, right, on="_TMP_KEY", suffixes=suffixes).drop("_TMP_KEY", axis=1)
+    res = pd.merge(left, right, on="_TMP_KEY", suffixes=suffixes).drop("_TMP_KEY", axis=1)
+    left.drop("_TMP_KEY", axis=1, inplace=True)
+    right.drop("_TMP_KEY", axis=1, inplace=True)
+    return res
 
 
 def between_join(left, right, left_on="DEPTH", right_on=("DEPTH_FROM", "DEPTH_TO"), suffixes=("_left", "_right")):
