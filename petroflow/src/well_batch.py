@@ -8,7 +8,7 @@ from collections import defaultdict
 import numpy as np
 
 from ..batchflow import Batch, SkipBatchException, action, inbatch_parallel, any_action_failed
-from ..batchflow.batchflow.batch import MethodsTransformingMeta
+from ..batchflow.batchflow.batch import MethodsTransformingMeta  # pylint: disable=import-error
 from .well import Well
 from .base_delegator import BaseDelegator
 from .abstract_classes import AbstractWell
@@ -92,5 +92,5 @@ class WellBatch(Batch, AbstractWell, metaclass=WellDelegatingMeta):
             traceback.print_tb(errors[0].__traceback__)
             raise RuntimeError("Could not assemble the batch")
         self.index = self.index.create_subset(self.indices[~skip_mask])  # pylint: disable=invalid-unary-operand-type, attribute-defined-outside-init, line-too-long
-        self.wells = results
+        self.wells = results    # pylint: disable=attribute-defined-outside-init
         return self
