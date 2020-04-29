@@ -26,7 +26,7 @@ from plotly.offline import init_notebook_mode, plot, iplot
 from .abstract_classes import AbstractWellSegment
 from .matching import select_contigious_intervals, match_boring_sequence, find_best_shifts, create_zero_shift
 from .joins import cross_join, between_join, fdtd_join
-from .utils import to_list, process_columns, parse_depth, insert_intervals
+from .utils import to_list, process_columns, parse_depth, fill_intervals
 from .exceptions import SkipWellException, DataRegularityError
 
 
@@ -569,9 +569,9 @@ class WellSegment(AbstractWellSegment):
             dl_img = dl_img[top_crop:bottom_crop]
             uv_img = uv_img[top_crop:bottom_crop]
 
-            insert_pos = max(0, self._cm_to_pixels(sample_depth_from - self.depth_from))
-            core_dl[insert_pos:insert_pos+dl_img.shape[0]] = dl_img
-            core_uv[insert_pos:insert_pos+uv_img.shape[0]] = uv_img
+            fill_pos = max(0, self._cm_to_pixels(sample_depth_from - self.depth_from))
+            core_dl[fill_pos:fill_pos+dl_img.shape[0]] = dl_img
+            core_uv[fill_pos:fill_pos+uv_img.shape[0]] = uv_img
 
         self._core_dl = core_dl if exist_dl else None
         self._core_uv = core_uv if exist_uv else None
@@ -1800,20 +1800,20 @@ class WellSegment(AbstractWellSegment):
         index, mask = self._create_mask_template(mode, default, dst, create_index)
         depth_from = src_index.get_level_values('DEPTH_FROM').values
         depth_to = src_index.get_level_values('DEPTH_TO').values
-        insert_from = np.searchsorted(index, depth_from, side='left')
-        insert_to = np.searchsorted(index, depth_to, side='right')
-        mask = insert_intervals(mask, insert_from, insert_to, src_values)
+        fill_from = np.searchsorted(index, depth_from, side='left')
+        fill_to = np.searchsorted(index, depth_to, side='right')
+        mask = fill_intervals(mask, fill_from, fill_to, src_values)
 
         return index, mask
 
     def _create_mask_depth(self, src_index, src_values, mode, default, dst, create_index):
         """Create mask by depth indexed src."""
         index, mask = self._create_mask_template(mode, default, dst, create_index)
-        insert_depth = np.searchsorted(index, src_index, side='left')
-        duplicates = np.concatenate([insert_depth[1:] - insert_depth[:-1] == 0, [False]])
-        insert_depth = insert_depth[~duplicates]
+        fill_pos = np.searchsorted(index, src_index, side='left')
+        duplicates = np.concatenate([fill_pos[1:] - fill_pos[:-1] == 0, [False]])
+        fill_pos = fill_pos[~duplicates]
         src_values = src_values[~duplicates]
-        mask[insert_depth] = src_values
+        mask[fill_pos] = src_values
 
         return index, mask
 

@@ -96,7 +96,8 @@ def parse_depth(depth, check_positive=False, var_name="Depth/length"):
 
 
 @njit
-def insert_intervals(arr, starts, ends, values):
+def fill_intervals(arr, starts, ends, values):
+    """Accelerate interval-based array value fill."""
     for start, end, value in zip(starts, ends, values):
         arr[start:end] = value
     return arr
