@@ -1,65 +1,59 @@
 [![License](https://img.shields.io/github/license/analysiscenter/batchflow.svg)](https://www.apache.org/licenses/LICENSE-2.0)
-[![Python](https://img.shields.io/badge/python-3.5-blue.svg)](https://python.org)
-[![TensorFlow](https://img.shields.io/badge/TensorFlow-1.12-orange.svg)](https://tensorflow.org)
-[![PyTorch](https://img.shields.io/badge/torch-1.1-orange.svg)](https://pytorch.org)
+[![Python](https://img.shields.io/badge/python-3.6-blue.svg)](https://python.org)
+[![TensorFlow](https://img.shields.io/badge/TensorFlow-1.15-orange.svg)](https://tensorflow.org)
+[![PyTorch](https://img.shields.io/badge/PyTorch-1.5-orange.svg)](https://pytorch.org)
 
 
 # PetroFlow
 
-`PetroFlow` is a library that allows to process well data (logs, core photo etc.) and conveniently train
-machine learning models.
+`PetroFlow` is a library that allows processing well data (logs, core images, etc.) and conveniently train machine learning models.
 
 Main features:
-
-* load and process well data:
+* load and process various types of well data:
     * well logs
     * core images in daylight (DL) and ultraviolet light (UV)
-    * core logs
+    * logs of the core
     * inclination
     * stratum layers
     * boring intervals
     * properties of core plugs
     * lithological description of core samples
 * perform core-to-log matching
-* predict porosity by logs
-* detect mismatched DL and UV core images
-* recover missed logs and DT log by other logs
-* detect collectors by logs
+* train various deep learning models, e.g. to:
+    * predict porosity by well logs
+    * detect mismatched DL and UV core images
+    * recover missing logs by the available ones
+
 
 ## About PetroFlow
 
-> `PetroFlow` is based on [BatchFlow](https://github.com/analysiscenter/batchflow). You might benefit from reading [its documentation](https://analysiscenter.github.io/batchflow).
-However, it is not required, especially at the beginning.
+> `PetroFlow` is based on [BatchFlow](https://github.com/analysiscenter/batchflow). You might benefit from reading [its documentation](https://analysiscenter.github.io/batchflow). However, it is not required, especially at the beginning.
 
+In addition to the `BatchFlow` primitives, `PetroFlow` defines its own `Well` and `WellBatch` classes.
 
-`PetroFlow` has two main modules: [``src``](https://github.com/gazprom-neft/petroflow/tree/master/petroflow/src) and [``models``](https://github.com/gazprom-neft/petroflow/tree/master/petroflow/models).
+`Well` is a class, representing a well. It implements various methods for well data processing, such as filtering, visualization, normalization and cropping. In order to create a `Well`, you have to convert well data into a special [format](https://github.com/gazprom-neft/petroflow/blob/master/well_format.md).
 
+`WellBatch` is designed to processes several wells at once to conveniently build multi-staged workflows that can involve machine learning model training.
 
-``src`` module contains ``Well``, ``WellBatch``, ``CoreBatch`` and ``WellLogsBatch`` classes.
-``Well`` is a class, representing a well and includes methods for well data processing. All these methods are inherited by ``WellBatch`` class and might be used to build multi-staged workflows that can also involve machine learning models. ``CoreBatch`` is a class for core images processing, especially for detection of mismatched pairs. ``WellLogsBatch`` allows working with well logs separately.
-
-``models`` module provides several ready to use models for important problems:
-
-* logs and core data matching
-* predicting of some reservoir properties (e.g., porosity) by well logs
-* detecting mismatched pairs of DL and UV core photos
-* logs recovering (e.g., DT log) by other logs
-* detecting of oil collectors by logs
 
 ## Basic usage
 
-Here is an example of a pipeline that loads well data, makes preprocessing and trains
-a model for porosity prediction for 3000 epochs:
+Here is an example of a pipeline that loads well data, makes preprocessing and trains a model for porosity prediction for 1000 epochs:
+
 ```python
 train_pipeline = (
   bf.Pipeline()
     .add_namespace(np)
-    .init_variable("loss", init_on_each_run=list)
-    .init_model("dynamic", UNet, "UNet", model_config)
-    .keep_logs(LOG_MNEMONICS + ["DEPTH"])
-    .interpolate(attrs="core_properties", limit=10, limit_area="inside")
-    .norm_min_max(q1, q99)
-    .random_crop(CROP_LENGTH_M, N_CROPS)
+    .init_variable("loss", default=[])
+    .init_model("dynamic", "UNet", config=model_config)
+    .keep_logs(LOG_MNEMONICS)
+    .drop_nans()
+    .drop_short_segments(CROP_LENGTH_CM)
+    .add_depth_log()
+    .reindex(step=LOGS_REINDEXATION_STEP, interpolate=True, attrs="logs")
+    .reindex(step=PROPS_REINDEXATION_STEP, attrs="core_properties")
+    .norm_mean_std(logs_mean, logs_std)
+    .random_crop(CROP_LENGTH_CM, N_CROPS)
     .update(B("logs"), WS("logs").ravel())
     .stack(B("logs"), save_to=B("logs"))
     .swapaxes(B("logs"), 1, 2, save_to=B("logs"))
@@ -70,7 +64,7 @@ train_pipeline = (
     .divide(B("mask"), 100, save_to=B("mask"))
     .array(B("mask"), dtype=np.float32, save_to=B("mask"))
     .train_model("UNet", B("logs"), B("mask"), fetches="loss", save_to=V("loss", mode="a"))
-    .run(batch_size=4, n_epochs=3000, shuffle=True, drop_last=True, bar=True, lazy=True)
+    .run(batch_size=4, n_epochs=1000, shuffle=True, drop_last=True, bar=True, lazy=True)
 )
 ```
 
@@ -79,7 +73,7 @@ train_pipeline = (
 
 > `PetroFlow` module is in the beta stage. Your suggestions and improvements are very welcome.
 
-> `PetroFlow` supports python 3.5 or higher.
+> `PetroFlow` supports python 3.6 or higher.
 
 
 ### Installation as a python package
@@ -92,7 +86,7 @@ With [pip](https://pip.pypa.io/en/stable/):
 
     pip3 install git+https://github.com/gazprom-neft/petroflow.git
 
-After that just import `petroflow`:
+After that just import `PetroFlow`:
 ```python
 import petroflow
 ```
@@ -100,19 +94,22 @@ import petroflow
 
 ### Installation as a project repository
 
-When cloning repo from GitHub use flag ``--recursive`` to make sure that ``batchflow`` submodule is also cloned.
+When cloning repo from GitHub use flag `--recursive` to make sure that `BatchFlow` submodule is also cloned.
 
     git clone --recursive https://github.com/gazprom-neft/petroflow.git
+
 
 ## Citing PetroFlow
 
 Please cite `PetroFlow` in your publications if it helps your research.
 
-    Khudorozhkov R., Kuvaev A., Kozhevin A. PetroFlow library for data science research of well data. 2019.
+```
+Khudorozhkov R., Kuvaev A., Kozhevin A., Goryachev S. PetroFlow library for data science research of well data. 2019.
+```
 
 ```
 @misc{
-  author       = {R. Khudorozhkov and A. Kuvaev and A. Kozhevin},
+  author       = {R. Khudorozhkov and A. Kuvaev and A. Kozhevin and S. Goryachev},
   title        = {PetroFlow library for data science research of well data},
   year         = 2019
 }
