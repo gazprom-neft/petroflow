@@ -1698,8 +1698,8 @@ class WellSegment(AbstractWellSegment):
         crops = [self[start:start+length] for start in crops_starts]
         return crops
 
-    def create_mask(self, src, column, mapping=None, mode='logs', dst='mask',
-                    default=np.nan, bad_values=None, create_index=False, limit=None):
+    def create_mask(self, src, column, mapping=None, mode="logs", dst="mask",
+                    default=np.nan, drop=None, create_index=False, limit=None):
         """Transform a column from some `WellSegment` attribute into a mask
         correponding to a well log or to a core image.
 
@@ -1722,7 +1722,7 @@ class WellSegment(AbstractWellSegment):
         default : float
             Default value for mask if `src` doesn't contain information for
             corresponding depth. Defaults to `numpy.nan`.
-        bad_values : list of str, optional
+        drop : list of str, optional
             Values from `src` series to exlude (e.g. [None, np.nan, ' ']).
         create_index : bool
             Whether save index in centimeters to the attr with name `dst`
@@ -1739,15 +1739,15 @@ class WellSegment(AbstractWellSegment):
         self : type(self)
             Self with created mask.
         """
-        if mode not in ['core', 'logs']:
+        if mode not in ["core", "logs"]:
             raise ValueError('Unknown mode: ', mode)
 
         src_series = getattr(self, src)[column]
 
         if not src_series.index.is_monotonic:
             src_series.sort_index(level=0, inplace=True)
-        if bad_values is not None:
-            src_series = src_series[~src_series.isin(bad_values)]
+        if drop is not None:
+            src_series = src_series[~src_series.isin(drop)]
 
         src_index = src_series.index
         src_values = src_series.values
