@@ -2079,8 +2079,8 @@ class WellSegment(AbstractWellSegment):
             Maximum possible shift in centimeters. If `str`, must be specified
             in a <value><units> format (e.g. "10m").
         mnemonics : str or list of str or None
-            Mnemonics of well logs to be shifted. If `None`, randomly shift all
-            every `logs` columns. Defaults to `None`.
+            Mnemonics of well logs to be shifted. If `None`, randomly shift
+            every `logs` column. Defaults to `None`.
         Returns
         -------
         self : type(self)
