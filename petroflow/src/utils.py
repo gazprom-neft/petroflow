@@ -18,13 +18,11 @@ def to_list(obj):
     """
     return np.array(obj).ravel().tolist()
 
-def process_columns(*dec_args, dst_from_result_=False):
+def process_columns(*dec_args, dst_from_result=False):
     """Decorate a `method` so that it is applied to `src` columns of an `attr`
-    well attribute and stores the result in `dst` columns of this attribute.
+    well attribute and the result is saved to `dst` columns of this attribute.
 
-    Parameters
-    ----------
-    A `dst_from_result_` keyword argument can be passed to the decorator
+    A `dst_from_result` keyword argument can be passed to the decorator
     to redefine the default value of the added argument with the same name.
 
     Adds the following additional arguments to the decorated method:
@@ -41,9 +39,9 @@ def process_columns(*dec_args, dst_from_result_=False):
     drop_src : bool, optional
         Specifies whether to drop `src` columns from `attr` after the method
         call. Defaults to `False`.
-    dst_from_result : bool
+    dst_from_result : bool, optional
         Whether use column names of the dataframe returned by class method as
-        `dst` when saving final result. Defaults to False.
+        `dst` when saving final result. Defaults to `False`.
     """
     def wrapper_caller(method):
         @functools.wraps(method)
@@ -78,6 +76,7 @@ def process_columns(*dec_args, dst_from_result_=False):
             return self
         return wrapper
 
+    dst_from_result_ = dst_from_result
     if len(dec_args) == 1 and callable(dec_args[0]):
         return wrapper_caller(method=dec_args[0])
     if len(dec_args) != 0:

@@ -2068,7 +2068,7 @@ class WellSegment(AbstractWellSegment):
             setattr(self, _dst, img)
         return self
 
-    def random_shift_logs(self, max_shift, src=None):
+    def random_shift_logs(self, max_shift, mnemonics=None):
         """Shift `logs` attr columns by a step sampled from discrete uniform
         distribution in [-`max_period`, `max_period`]. Resulted empty positions
         are filled with first/last column value depending on shift direction.
@@ -2078,31 +2078,33 @@ class WellSegment(AbstractWellSegment):
         max_shift : positive int or str
             Maximum possible shift in centimeters. If `str`, must be specified
             in a <value><units> format (e.g. "10m").
-
+        mnemonics : str or list of str or None
+            Mnemonics of well logs to be shifted. If `None`, randomly shift all
+            every `logs` columns. Defaults to `None`.
         Returns
         -------
         self : type(self)
             Self with randomly shifted `logs` columns.
         """
         df = self.logs
-        src = df.columns if src is None else [src] if isinstance(src, str) else src
+        mnemonics = df.columns if mnemonics is None else to_list(mnemonics)
         max_shift = parse_depth(max_shift, check_positive=True, var_name="max_shift") // self.logs_step
         if max_shift == 0:
             warnings.warn('Passed `max_shift` is smaller then dataframe index step and therefore no shift was applied.')
-        for column, series in df[src].iteritems():
+        for column, series in df[mnemonics].iteritems():
             periods = np.random.randint(-max_shift, max_shift + 1)
             fill_value = series.iloc[0] if periods > 0 else series.iloc[-1]
             df[column] = series.shift(periods=periods, fill_value=fill_value)
         return self
 
-    @process_columns(dst_from_result_=True)
+    @process_columns(dst_from_result=True)
     def one_hot_encode(self, df, encoder):
-        """One-hot encode columns of WellSegment attribute.
+        """One-hot encode columns of `WellSegment` attribute.
 
         Parameters
         ----------
-        encoder : callable
-            Fitted sklearn.preprocessing.OneHotEncoder
+        encoder : sklearn.preprocessing.OneHotEncoder
+            Instance of encoder fitted on specified `src` columns from `attr`.
 
         Returns
         -------
