@@ -1422,7 +1422,7 @@ class WellSegment(AbstractWellSegment):
         return self
 
     def add_depth_log(self, dst='DEPTH'):
-        """Copy the index of `self.logs` to its column `DEPTH`.
+        """Copy the index of `self.logs` to its column.
 
         Parameters
         ----------
@@ -2068,9 +2068,8 @@ class WellSegment(AbstractWellSegment):
             setattr(self, _dst, img)
         return self
 
-    @process_columns
-    def random_shift(self, df, max_shift):
-        """Shift each dataframe column by a step sampled from discrete uniform
+    def random_shift_logs(self, max_shift, src=None):
+        """Shift `logs` attr columns by a step sampled from discrete uniform
         distribution in [-`max_period`, `max_period`]. Resulted empty positions
         are filled with first/last column value depending on shift direction.
 
@@ -2083,24 +2082,22 @@ class WellSegment(AbstractWellSegment):
         Returns
         -------
         self : type(self)
-            Self with randomly shifted logs columns.
+            Self with randomly shifted `logs` columns.
         """
-        shifted_df = df.copy()
-        df_step = shifted_df.index[1] - shifted_df.index[0]
-        max_shift = parse_depth(max_shift, check_positive=True, var_name="max_shift")
-        max_shift = max_shift // df_step
+        df = self.logs
+        src = df.columns if src is None else [src] if isinstance(src, str) else src
+        max_shift = parse_depth(max_shift, check_positive=True, var_name="max_shift") // self.logs_step
         if max_shift == 0:
             warnings.warn('Passed `max_shift` is smaller then dataframe index step and therefore no shift was applied.')
-        for column, series in df.iteritems():
-            period = np.random.randint(-max_shift, max_shift + 1)
-            if period != 0:
-                fill_value = series.iloc[0] if period > 0 else series.iloc[-1]
-                shifted_df[column] = series.shift(periods=period, fill_value=fill_value)
-        return shifted_df
+        for column, series in df[src].iteritems():
+            periods = np.random.randint(-max_shift, max_shift + 1)
+            fill_value = series.iloc[0] if periods > 0 else series.iloc[-1]
+            df[column] = series.shift(periods=periods, fill_value=fill_value)
+        return self
 
-    @process_columns(preserve_column_names=True)
+    @process_columns(dst_from_result_=True)
     def one_hot_encode(self, df, encoder):
-        """One-hot encode each dataframe column.
+        """One-hot encode columns of WellSegment attribute.
 
         Parameters
         ----------
@@ -2113,6 +2110,6 @@ class WellSegment(AbstractWellSegment):
             Self with one-hot encoded logs columns.
         """
         _ = self
-        columns = ['{}_{}'.format(col, category) for num, col in enumerate(df) for category in encoder.categories_[num]]
+        columns = ['{}_{}'.format(col, cat) for col, categories in zip(df, encoder.categories_) for cat in categories]
         encoded = encoder.transform(df).toarray() if encoder.sparse else encoder.transform(df)
         return pd.DataFrame(index=df.index, data=encoded, columns=columns)

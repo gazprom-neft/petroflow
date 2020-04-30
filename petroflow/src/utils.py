@@ -7,6 +7,7 @@ import functools
 import pint
 import numpy as np
 
+
 UNIT_REGISTRY = pint.UnitRegistry()
 
 
@@ -17,22 +18,14 @@ def to_list(obj):
     """
     return np.array(obj).ravel().tolist()
 
-def process_columns(*dec_args, **dec_kwargs):
+def process_columns(*dec_args, dst_from_result_=False):
     """Decorate a `method` so that it is applied to `src` columns of an `attr`
-    well attribute and store the result in `dst` columns of the same attribute.
+    well attribute and stores the result in `dst` columns of this attribute.
 
     Parameters
     ----------
-    dec_args
-        0 : callable
-            Method to decorate (passed automatically if decorator applied
-            additional argument `preserve_column_names`)
-        No explicit args allowed.
-    dec_kwargs
-        preserve_column_names : bool
-            Whether preserve column names of the dataframe returned by
-            class method when saving final result.
-        Only one named argument allowed.
+    A `dst_from_result_` keyword argument can be passed to the decorator
+    to redefine the default value of the added argument with the same name.
 
     Adds the following additional arguments to the decorated method:
     ----------------------------------------------------------------
@@ -48,10 +41,14 @@ def process_columns(*dec_args, **dec_kwargs):
     drop_src : bool, optional
         Specifies whether to drop `src` columns from `attr` after the method
         call. Defaults to `False`.
+    dst_from_result : bool
+        Whether use column names of the dataframe returned by class method as
+        `dst` when saving final result. Defaults to False.
     """
     def wrapper_caller(method):
         @functools.wraps(method)
-        def wrapper(self, *args, attr="logs", src=None, except_src=None, dst=None, drop_src=False, **kwargs):
+        def wrapper(self, *args, attr="logs", src=None, except_src=None, dst=None,
+                    drop_src=False, dst_from_result=None, **kwargs):
             df = getattr(self, attr)
             if (src is not None) and (except_src is not None):
                 raise ValueError("src and except_src can't be specified together")
@@ -64,15 +61,15 @@ def process_columns(*dec_args, **dec_kwargs):
             else:
                 src = df.columns
 
-            preserve_column_names = kwargs.pop('preserve_column_names', preserve_column_names_)
+            dst_from_result = dst_from_result_ if dst_from_result is None else dst_from_result
             result = method(self, df[src], *args, **kwargs)
             if dst is None:
-                dst = result.columns if preserve_column_names else src
+                dst = result.columns if dst_from_result else src
             else:
-                if preserve_column_names:
+                if dst_from_result:
                     warnings.warn('Column names of dataframe returned by {} are overwritten by your custom `dst`. '
-                                  'To suppress this warning, explicitly pass `preserve_column_names=False` to the '
-                                  'method call.'.format(method.__qualname__))
+                                  'To suppress this warning explicitly pass `dst_from_result=False` to the method call.'
+                                  .format(method.__qualname__))
                 dst = to_list(dst)
             df[dst] = result
 
@@ -81,13 +78,10 @@ def process_columns(*dec_args, **dec_kwargs):
             return self
         return wrapper
 
-    preserve_column_names_ = dec_kwargs.pop('preserve_column_names', False)
     if len(dec_args) == 1 and callable(dec_args[0]):
         return wrapper_caller(method=dec_args[0])
     if len(dec_args) != 0:
         raise ValueError("Decorator `process_columns` takes only named arguments")
-    if len(dec_kwargs) > 1:
-        raise TypeError("Decorator `process_columns` takes exactly one named argument")
     return wrapper_caller
 
 
