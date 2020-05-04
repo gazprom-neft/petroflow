@@ -5,7 +5,6 @@ import functools
 
 import pint
 import numpy as np
-
 from numba import njit
 
 UNIT_REGISTRY = pint.UnitRegistry()

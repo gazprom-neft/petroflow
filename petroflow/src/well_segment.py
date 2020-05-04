@@ -1702,35 +1702,39 @@ class WellSegment(AbstractWellSegment):
         crops = [self[start:start+length] for start in crops_starts]
         return crops
 
-    def create_mask(self, src, column, mapping=None, mode="logs", dst="mask",
-                    default=np.nan, drop=None, create_index=False, limit=None):
-        """Transform a column from some `WellSegment` attribute into a mask
-        correponding to a well log or to a core image.
+    def create_mask(self, attr, src, mapping=None, mode="logs", dst="mask",
+                    default=np.nan, drop=None, create_core_index=False, limit=None):
+        """Create a numerical mask from column of `WellSegment` attribute,
+        using logs or core photo data as a depth indexer.
 
         Parameters
         ----------
+        attr : str
+            Attribute to get the `src` column from.
         src : str
-            Attribute to get the column from.
-        column : str
-            Name of the column to transform.
-        mapping : dict or None
-            Mapping to numeric values, required if data in `src[column]`
-            is not numerical itself. Defaults to `None`.
+            Name of the `attr` column to create mask from.
+        mapping : dict, callable or None, optional
+            Mapping required if masked data is not numerical itself.
+            If `dict`, keys are from `attr[src]` and values are numeric.
+            If `callable`, takes `pd.Series` as only argument and
+            returns a numeric `np.array` of the same length.
+            Defaults to `None`.
         mode : 'logs' or 'core'
-            A mode, specifying the length of computed mask. If 'logs', mask
-            lenght will match the length of well logs. If 'core', mask length
-            will match the heigth of `core_dl` in pixels. Defaults to
-            `'logs'`.
-        dst : str
-            `WellSegment` attribute to save the mask to. Defaults to `mask`.
-        default : float
-            Default value for mask if `src` doesn't contain information for
-            corresponding depth. Defaults to `numpy.nan`.
+            A mode, specifying which `WellSegment` attribute to use as a depth
+            indexer. If 'logs', each mask position corresponds to a depth from
+            `logs` and if 'core' — to one from `core_dl`. Defaults to 'logs'.
+        dst : str, optional
+            Where to save the mask to. If `mode` is 'logs' then assign resulted
+            mask to `dst` column of `logs`. If `mode` is 'core` — store mask in
+            `dst` attribute of `WellSegment`. Defaults to 'mask'.
+        default : float, optional
+            Value to fill mask depths positions missing in `attr[src]`.
+            Defaults to `numpy.nan`.
         drop : list of str, optional
-            Values from `src` series to exlude (e.g. [None, np.nan, ' ']).
-        create_index : bool
-            Whether save index in centimeters to the attr with name `dst`
-            postfixed with '_index'. Defaults to False.
+            Values from `attr[src]` to exclude (e.g. `[None, np.nan, ' ']`).
+        create_core_index : bool, optional
+            Whether save depth index for 'core' mode to `WellSegment` attribute
+            with name `dst` postfixed with '_core_index'. Defaults to False.
         limit : int, optional
             If specified, the maximum number of consecutive nan values to fill
             both backward and forward with the closest value that is not nan.
@@ -1746,76 +1750,73 @@ class WellSegment(AbstractWellSegment):
         if mode not in ["core", "logs"]:
             raise ValueError('Unknown mode: ', mode)
 
-        src_series = getattr(self, src)[column]
+        src_series = getattr(self, attr)[src]
 
-        if not src_series.index.is_monotonic:
-            src_series.sort_index(level=0, inplace=True)
+        if not src_series.index.is_monotonic_increasing:
+            src_series = src_series.sort_index(level=0)
         if drop is not None:
             src_series = src_series[~src_series.isin(drop)]
 
         src_index = src_series.index
         src_values = src_series.values
 
-        if mapping is not None:
+        if isinstance(mapping, dict):
             uniques, indices = np.unique(src_series, return_inverse=True)
             src_values = np.array([mapping[x] for x in uniques])[indices]
+        elif mapping is callable:
+            src_values = mapping(src_series)
 
-        if src == 'logs' and mode == 'logs':
-            index, mask = src_index, src_values
-        elif src in self.attrs_fdtd_index:
-            index, mask = self._create_mask_fdtd(src_index, src_values, mode, default, dst, create_index)
-        elif src in self.attrs_depth_index:
-            index, mask = self._create_mask_depth(src_index, src_values, mode, default, dst, create_index)
+        if attr == 'logs' and mode == 'logs':
+            mask = src_values
+        elif attr in self.attrs_fdtd_index:
+            mask = self._create_mask_fdtd(src_index, src_values, mode, default, dst, create_core_index)
+        elif attr in self.attrs_depth_index:
+            mask = self._create_mask_depth(src_index, src_values, mode, default, dst, create_core_index)
         else:
-            ValueError('Unknown src type: ', src)
-
-        if create_index is not None:
-            setattr(self, dst + '_index', index)
+            ValueError('Got `WellSegment` attribute of unknown index type: ', attr)
 
         if limit is not None:
             limit *= self.logs_step if mode == 'logs' else self.pixels_per_cm
             mask = pd.Series(mask).fillna(method='ffill', limit=limit).fillna(method='bfill', limit=limit).values
 
-        setattr(self, dst, mask)
+        if mode == 'logs':
+            self.logs[dst] = mask
+        else:
+            setattr(self, dst, mask)
 
         return self
 
-    def _create_mask_template(self, mode, default, dst, create_index):
+    def _create_mask_template(self, mode, default, dst, create_core_index):
         """Create index in centimeters and mask filled with default values"""
         if mode == 'core':
             index = np.linspace(self.depth_from, self.depth_to, len(self.core_dl))
-            length = len(self.core_dl)
+            if create_core_index:
+                setattr(self, dst + '_core_index', index)
         elif mode == 'logs':
             index = self.logs.index
-            length = len(self.logs)
 
-        mask = np.full(length, default)
-        if create_index:
-            setattr(self, dst + '_index', index)
-
+        mask = np.full(len(index), default)
         return index, mask
 
-    def _create_mask_fdtd(self, src_index, src_values, mode, default, dst, create_index):
-        """Create mask by fdtd indexed src."""
-        index, mask = self._create_mask_template(mode, default, dst, create_index)
+    def _create_mask_fdtd(self, src_index, src_values, mode, default, dst, create_core_index):
+        """Create mask by fdtd indexed series."""
+        index, mask = self._create_mask_template(mode, default, dst, create_core_index)
         depth_from = src_index.get_level_values('DEPTH_FROM').values
         depth_to = src_index.get_level_values('DEPTH_TO').values
         fill_from = np.searchsorted(index, depth_from, side='left')
         fill_to = np.searchsorted(index, depth_to, side='right')
         mask = fill_intervals(mask, fill_from, fill_to, src_values)
+        return mask
 
-        return index, mask
-
-    def _create_mask_depth(self, src_index, src_values, mode, default, dst, create_index):
-        """Create mask by depth indexed src."""
-        index, mask = self._create_mask_template(mode, default, dst, create_index)
+    def _create_mask_depth(self, src_index, src_values, mode, default, dst, create_core_index):
+        """Create mask by depth indexed series."""
+        index, mask = self._create_mask_template(mode, default, dst, create_core_index)
         fill_pos = np.searchsorted(index, src_index, side='left')
         duplicates = np.concatenate([fill_pos[1:] - fill_pos[:-1] == 0, [False]])
         fill_pos = fill_pos[~duplicates]
         src_values = src_values[~duplicates]
         mask[fill_pos] = src_values
-
-        return index, mask
+        return mask
 
     @process_columns
     def apply(self, df, fn, *args, axis=None, **kwargs):
