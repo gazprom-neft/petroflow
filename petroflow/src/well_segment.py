@@ -26,7 +26,7 @@ from plotly.offline import init_notebook_mode, plot, iplot
 from .abstract_classes import AbstractWellSegment
 from .matching import select_contigious_intervals, match_boring_sequence, find_best_shifts, create_zero_shift
 from .joins import cross_join, between_join, fdtd_join
-from .utils import to_list, process_columns, parse_depth, fill_intervals
+from .utils import to_list, process_columns, parse_depth, fast_fill_intervals
 from .exceptions import SkipWellException, DataRegularityError
 
 
@@ -1704,20 +1704,19 @@ class WellSegment(AbstractWellSegment):
 
     def create_mask(self, attr, src, mapping=None, mode="logs", dst="mask",
                     default=np.nan, drop=None, create_core_index=False, limit=None):
-        """Create a numerical mask from column of `WellSegment` attribute,
-        using logs or core photo data as a depth indexer.
+        """Create mask from column of `WellSegment` attribute, using logs or
+        core data as a depth indexer.
 
         Parameters
         ----------
         attr : str
-            Attribute to get the `src` column from.
+            Name of the attribute to get the `src` column from.
         src : str
             Name of the `attr` column to create mask from.
         mapping : dict, callable or None, optional
-            Mapping required if masked data is not numerical itself.
-            If `dict`, keys are from `attr[src]` and values are numeric.
-            If `callable`, takes `pd.Series` as only argument and
-            returns a numeric `np.array` of the same length.
+            If `dict`, keys are from `attr[src]`.
+            If `callable`, takes single `attr[src]` value as an only argument
+            and returns a mapped value.
             Defaults to `None`.
         mode : 'logs' or 'core'
             A mode, specifying which `WellSegment` attribute to use as a depth
@@ -1733,8 +1732,8 @@ class WellSegment(AbstractWellSegment):
         drop : list of str, optional
             Values from `attr[src]` to exclude (e.g. `[None, np.nan, ' ']`).
         create_core_index : bool, optional
-            Whether save depth index for 'core' mode to `WellSegment` attribute
-            with name `dst` postfixed with '_core_index'. Defaults to False.
+            If True, save depth index in 'core' mode to 'core_index` attribute.
+            Defaults to False.
         limit : int, optional
             If specified, the maximum number of consecutive nan values to fill
             both backward and forward with the closest value that is not nan.
@@ -1760,18 +1759,19 @@ class WellSegment(AbstractWellSegment):
         src_index = src_series.index
         src_values = src_series.values
 
-        if isinstance(mapping, dict):
+        if mapping:
             uniques, indices = np.unique(src_series, return_inverse=True)
-            src_values = np.array([mapping[x] for x in uniques])[indices]
-        elif mapping is callable:
-            src_values = mapping(src_series)
+            if isinstance(mapping, dict):
+                src_values = np.array([mapping[x] for x in uniques])[indices]
+            elif callable(mapping):
+                src_values = np.array([mapping(x) for x in uniques])[indices]
 
         if attr == 'logs' and mode == 'logs':
             mask = src_values
         elif attr in self.attrs_fdtd_index:
-            mask = self._create_mask_fdtd(src_index, src_values, mode, default, dst, create_core_index)
+            mask = self._create_mask_fdtd(src_index, src_values, mode, default, create_core_index)
         elif attr in self.attrs_depth_index:
-            mask = self._create_mask_depth(src_index, src_values, mode, default, dst, create_core_index)
+            mask = self._create_mask_depth(src_index, src_values, mode, default, create_core_index)
         else:
             ValueError('Got `WellSegment` attribute of unknown index type: ', attr)
 
@@ -1786,31 +1786,38 @@ class WellSegment(AbstractWellSegment):
 
         return self
 
-    def _create_mask_template(self, mode, default, dst, create_core_index):
+    def _create_mask_template(self, mode, default, create_core_index):
         """Create index in centimeters and mask filled with default values"""
         if mode == 'core':
-            index = np.linspace(self.depth_from, self.depth_to, len(self.core_dl))
-            if create_core_index:
-                setattr(self, dst + '_core_index', index)
+            index = getattr(self, 'core_index', None)
+            if index is None:
+                index = np.linspace(self.depth_from, self.depth_to, len(self.core_dl))
+                if create_core_index:
+                    setattr(self, 'core_index', index)
         elif mode == 'logs':
             index = self.logs.index
 
         mask = np.full(len(index), default)
         return index, mask
 
-    def _create_mask_fdtd(self, src_index, src_values, mode, default, dst, create_core_index):
+    def _create_mask_fdtd(self, src_index, src_values, mode, default, create_core_index):
         """Create mask by fdtd indexed series."""
-        index, mask = self._create_mask_template(mode, default, dst, create_core_index)
+        index, mask = self._create_mask_template(mode, default, create_core_index)
         depth_from = src_index.get_level_values('DEPTH_FROM').values
         depth_to = src_index.get_level_values('DEPTH_TO').values
         fill_from = np.searchsorted(index, depth_from, side='left')
         fill_to = np.searchsorted(index, depth_to, side='right')
-        mask = fill_intervals(mask, fill_from, fill_to, src_values)
+        if src_values.dtype.kind in set('buifc'): # if numeric, can use numba
+            mask = fast_fill_intervals(mask, fill_from, fill_to, src_values)
+        else:
+            mask = mask.astype('object')
+            for start, end, value in zip(fill_from, fill_to, src_values):
+                mask[start:end] = value
         return mask
 
-    def _create_mask_depth(self, src_index, src_values, mode, default, dst, create_core_index):
+    def _create_mask_depth(self, src_index, src_values, mode, default, create_core_index):
         """Create mask by depth indexed series."""
-        index, mask = self._create_mask_template(mode, default, dst, create_core_index)
+        index, mask = self._create_mask_template(mode, default, create_core_index)
         fill_pos = np.searchsorted(index, src_index, side='left')
         duplicates = np.concatenate([fill_pos[1:] - fill_pos[:-1] == 0, [False]])
         fill_pos = fill_pos[~duplicates]
