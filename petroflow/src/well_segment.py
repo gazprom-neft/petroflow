@@ -562,7 +562,6 @@ class WellSegment(AbstractWellSegment):
             dl_img = self._load_image(dl_path)
             uv_path = self._get_full_name(os.path.join(self.path, "samples_uv"), sample_name)
             uv_img = self._load_image(uv_path)
-
             dl_img, uv_img = self._match_samples(dl_img, uv_img, sample_height, width)
 
             top_crop = max(0, self._cm_to_pixels(self.depth_from - sample_depth_from))
