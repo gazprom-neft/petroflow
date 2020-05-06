@@ -7,6 +7,7 @@ import re
 import json
 import base64
 import shutil
+import warnings
 from copy import copy, deepcopy
 from glob import glob
 from functools import reduce
@@ -616,7 +617,7 @@ class WellSegment(AbstractWellSegment):
             if attr_val is None:
                 try:
                     shutil.copy2(self._get_full_name(self.path, attr), path)
-                except Exception: # pylint: disable=broad-except
+                except Exception:  # pylint: disable=broad-except
                     pass
             else:
                 if attr not in self.attrs_no_index:
@@ -1421,15 +1422,20 @@ class WellSegment(AbstractWellSegment):
         plot_fn(fig)
         return self
 
-    def add_depth_log(self):
-        """Copy the index of `self.logs` to its column `DEPTH`.
+    def add_depth_log(self, dst='DEPTH'):
+        """Copy the index of `self.logs` to its column.
+
+        Parameters
+        ----------
+        dst : str
+            Specify logs dst column to save depth data. Defaults to 'DEPTH'.
 
         Returns
         -------
         self : type(self)
             Self with created depth log.
         """
-        self.logs["DEPTH"] = self.logs.index
+        self.logs[dst] = self.logs.index
         return self
 
     def drop_logs(self, mnemonics):
@@ -1999,9 +2005,8 @@ class WellSegment(AbstractWellSegment):
             return []
 
         borders = not_nan_mask[not_nan_mask ^ not_nan_mask.shift(1)].index.tolist()
-        # If last mask element is True (segment ends with not nan value in logs)
-        # then the xor trick above misses the last slicing border and therefore
-        # None should be added so the last slice could be done as `self[a:None]`
+        # If last mask element is True (segment ends with not nan value in logs) then the xor trick above misses
+        # the last slicing border and therefore None should be added so the last slice could be done as `self[a:None]`
         if not_nan_mask.iloc[-1]:
             borders.append(None)
         borders = zip(borders[0::2], borders[1::2])
@@ -2118,34 +2123,50 @@ class WellSegment(AbstractWellSegment):
             setattr(self, _dst, img)
         return self
 
-    def shift_logs(self, max_period, mnemonics=None):
-        """Shift every `logs` column from `mnemonics` by a random step sampled
-        from discrete uniform distribution in [-`max_period`, `max_period`].
-        All new resulting empty positions are filled with first/last
-        column value depending on shift direction.
+    def random_shift_logs(self, max_shift, mnemonics=None):
+        """Shift `logs` attr columns by a step sampled from discrete uniform
+        distribution in [-`max_period`, `max_period`]. Resulted empty positions
+        are filled with first/last column value depending on shift direction.
 
         Parameters
         ----------
-        max_period : positive int or str
+        max_shift : positive int or str
             Maximum possible shift in centimeters. If `str`, must be specified
             in a <value><units> format (e.g. "10m").
-        mnemonics : None or str or list of str
-            - If `None`, shift all logs columns.
-            - If `str`, shift single column from logs with `mnemonics` name.
-            - If `list`, shift all logs columnns with names in `mnemonics`.
-            Defaults to `None`.
+        mnemonics : str or list of str or None
+            Mnemonics of well logs to be shifted. If `None`, randomly shift
+            every `logs` column. Defaults to `None`.
+        Returns
+        -------
+        self : type(self)
+            Self with randomly shifted `logs` columns.
+        """
+        df = self.logs
+        mnemonics = df.columns if mnemonics is None else to_list(mnemonics)
+        max_shift = parse_depth(max_shift, check_positive=True, var_name="max_shift") // self.logs_step
+        if max_shift == 0:
+            warnings.warn('Passed `max_shift` is smaller then dataframe index step and therefore no shift was applied.')
+        for column, series in df[mnemonics].iteritems():
+            periods = np.random.randint(-max_shift, max_shift + 1)
+            fill_value = series.iloc[0] if periods > 0 else series.iloc[-1]
+            df[column] = series.shift(periods=periods, fill_value=fill_value)
+        return self
+
+    @process_columns(dst_from_result=True)
+    def one_hot_encode(self, df, encoder):
+        """One-hot encode columns of `WellSegment` attribute.
+
+        Parameters
+        ----------
+        encoder : sklearn.preprocessing.OneHotEncoder
+            Instance of encoder fitted on specified `src` columns from `attr`.
 
         Returns
         -------
         self : type(self)
-            Self with shifted logs columns.
+            Self with one-hot encoded logs columns.
         """
-        max_period = parse_depth(max_period, check_positive=True, var_name="max_period")
-        mnemonics = self.logs.columns if mnemonics is None else to_list(mnemonics)
-        max_period = int(max_period / self.logs_step)
-        periods = np.random.randint(-max_period, max_period + 1, len(mnemonics))
-        for mnemonic, period in zip(mnemonics, periods):
-            fill_index = 0 if period > 0 else -1
-            fill_value = self.logs[mnemonic].iloc[fill_index]
-            self.logs[mnemonic] = self.logs[mnemonic].shift(periods=period, fill_value=fill_value)
-        return self
+        _ = self
+        columns = ['{}_{}'.format(col, cat) for col, categories in zip(df, encoder.categories_) for cat in categories]
+        encoded = encoder.transform(df).toarray() if encoder.sparse else encoder.transform(df)
+        return pd.DataFrame(index=df.index, data=encoded, columns=columns)

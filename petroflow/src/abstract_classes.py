@@ -96,7 +96,11 @@ class AbstractWellSegment(metaclass=ABCMeta):
         pass
 
     @abstractmethod
-    def shift_logs(self):
+    def random_shift_logs(self):
+        pass
+
+    @abstractmethod
+    def one_hot_encode(self):
         pass
 
 
