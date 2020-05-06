@@ -1,6 +1,7 @@
 """Miscellaneous utility functions."""
 
 import re
+import warnings
 import functools
 
 import pint
