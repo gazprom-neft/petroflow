@@ -7,6 +7,7 @@ import pint
 import numpy as np
 from numba import njit
 
+
 UNIT_REGISTRY = pint.UnitRegistry()
 
 
@@ -94,9 +95,26 @@ def parse_depth(depth, check_positive=False, var_name="Depth/length"):
     return depth
 
 
-@njit
-def fast_fill_intervals(arr, starts, ends, values):
-    """Accelerate interval-based array numeric value fill."""
-    for start, end, value in zip(starts, ends, values):
-        arr[start:end] = value
-    return arr
+def map_values(values, mapping):
+    """Accelerate values mapping for small inputs (size < 1600)."""
+    uniques, indices = np.unique(values, return_inverse=True)
+    if isinstance(mapping, dict):
+        mapping = lambda x, m=mapping: m.get(x, x)
+    elif not callable(mapping):
+        raise TypeError("Only `dict` and `callable` mappings are supported.")
+    mapped_values = np.array([mapping(x) for x in uniques])[indices]
+    return mapped_values
+
+
+def fill_intervals(arr, starts, ends, values):
+    """Accelerate interval-based array value fill."""
+    def fill(arr, starts, ends, values):
+        for start, end, value in zip(starts, ends, values):
+            arr[start:end] = value
+        return arr
+
+    if values.dtype.kind in set('UO'):
+        return fill(arr, starts, ends, values)
+    if values.dtype.kind in set('buif'):
+        return njit(fill)(arr, starts, ends, values)
+    raise TypeError("Only numeric, str and object dtypes are supported.")
