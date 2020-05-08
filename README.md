@@ -35,6 +35,8 @@ In addition to the `BatchFlow` primitives, `PetroFlow` defines its own `Well` an
 
 `WellBatch` is designed to processes several wells at once to conveniently build multi-staged workflows that can involve machine learning model training.
 
+You can learn more about using `PetroFlow` from the [tutorials](https://github.com/gazprom-neft/petroflow/tree/master/tutorials).
+
 
 ## Basic usage
 
