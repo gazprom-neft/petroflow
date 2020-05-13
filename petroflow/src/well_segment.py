@@ -816,7 +816,7 @@ class WellSegment(AbstractWellSegment):
 
         # Slice images
         start_pos = self._cm_to_pixels(res.depth_from - self.depth_from)
-        stop_pos = self._cm_to_pixels(res.depth_to - self.depth_from) - 1
+        stop_pos = self._cm_to_pixels(res.depth_to - self.depth_from)
         if res._core_dl is not None:
             res._core_dl = res._core_dl[start_pos:stop_pos]
         if res._core_uv is not None:
