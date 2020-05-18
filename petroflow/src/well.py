@@ -553,8 +553,10 @@ class Well(AbstractWell, metaclass=SegmentDelegatingMeta):
                                           seg_0.logs_step, name="DEPTH")
                     attr_val_0 = attr_val_0.reindex(index=index)
                 setattr(seg_0, "_" + attr, attr_val_0)
-            setattr(seg_0, "depth_from", well.depth_from)
-            setattr(seg_0, "depth_to", well.depth_to)
+
+            seg_0.depth_from = well.depth_from
+            seg_0.depth_to = well.depth_to
+            seg_0.actual_depth_to = None
             well.segments = [seg_0]
         return self.prune()
 

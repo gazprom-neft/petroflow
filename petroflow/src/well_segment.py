@@ -30,6 +30,9 @@ from .utils import to_list, process_columns, parse_depth, fast_fill_intervals
 from .exceptions import SkipWellException, DataRegularityError
 
 
+pd.options.mode.chained_assignment = None
+
+
 def add_attr_properties(cls):
     """Add missing properties for lazy loading of `WellSegment` table-based
     attributes."""
