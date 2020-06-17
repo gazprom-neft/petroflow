@@ -192,7 +192,7 @@ class WellSegment(AbstractWellSegment):
         directory.
     """
 
-    attrs_depth_index = ("logs", "core_properties", "core_logs", "core_masks")
+    attrs_depth_index = ("logs", "core_properties", "core_logs")
     attrs_fdtd_index = ("layers", "boring_sequences", "boring_intervals", "core_lithology", "samples")
     attrs_no_index = ("inclination",)
     attrs_image = ("core_uv", "core_dl")
@@ -226,7 +226,6 @@ class WellSegment(AbstractWellSegment):
         self._core_properties = None
         self._core_lithology = None
         self._core_logs = None
-        self._core_masks = None
         self._samples = None
         self._core_dl = None
         self._core_uv = None
@@ -494,14 +493,6 @@ class WellSegment(AbstractWellSegment):
             self.load_core()
         return self._core_uv
 
-    @property
-    def core_masks(self):
-        """pandas.DataFrame: Storage for masks with core depth index."""
-        if self._core_masks is None:
-            index = np.linspace(self.depth_from, self.depth_to, self._cm_to_pixels(self.length))
-            self._core_masks = pd.DataFrame(index=index)
-        return self._core_masks
-
     @staticmethod
     def _load_image(path):
         """Open an image in `PIL` format."""
@@ -552,10 +543,6 @@ class WellSegment(AbstractWellSegment):
         """
         self.core_width = core_width if core_width is not None else self.core_width
         self.pixels_per_cm = pixels_per_cm if pixels_per_cm is not None else self.pixels_per_cm
-
-        if self._core_masks is not None:
-            index = pd.Index(np.linspace(self.depth_from, self.depth_to, self._cm_to_pixels(self.length)))
-            self._core_masks = self._core_masks.reindex(index, method='nearest')
 
         height = self._cm_to_pixels(self.length)
         width = self._cm_to_pixels(self.core_width)
@@ -1715,51 +1702,62 @@ class WellSegment(AbstractWellSegment):
         crops = [self[start:start+length] for start in crops_starts]
         return crops
 
-    def create_mask(self, src_attr, src, dst_attr="logs", dst="mask",
-                    mapping=None, default=np.nan, drop=None, limit=None):
-        """Create a mask of numeric or object dtype by column of `WellSegment`
-        attribute, using logs or core data as a depth indexer.
+    def create_mask(self, attr, src, mode="logs", dst="mask", mapping=None, default=np.nan, drop=None, limit=None):
+        """Create a mask by column of `WellSegment` attribute, using logs or
+        core data as a depth indexer.
 
         Parameters
         ----------
-        src_attr : str, from `self.attrs_depth_index`, `self.attrs_fdtd_index`
+        attr : str, from `self.attrs_depth_index` or `self.attrs_fdtd_index`
             Name of the attribute to get the data for mask creation from.
         src : str
-            Name of the `src_attr` column to create mask from.
-        dst_attr : 'logs' or 'core_masks'
-            Name of the attribute to store the created mask in. Also naturally
-            sets the index of this attribute to be used as a depth indexer for
-            mask creation. Defaults to 'logs'.
+            Name of the `attr` column to create mask from.
+        mode : 'logs' or 'core'
+            A mode, specifying which `WellSegment` attribute to use as a depth
+            indexer and where to store the created mask. If 'logs', each mask
+            position corresponds to a depth from `logs` and is saved to `logs`.
+            If 'core' then depths correspond to `core_dl` and mask is saved to
+            `core_masks` attribute. Note that the last one is not working with
+            well slicing and therefore not affected by `crop`, `aggregate` etc.
+            Defaults to 'logs'.
         dst : str
-            Name of the `dst_attr` column to save mask to. Defaults to 'mask'.
+            Where to save the mask to. If `mode` is 'logs' then assign resulted
+            mask to `dst` column of `logs`. If `mode` is 'core` — to `dst`
+            column of `core_masks` attribute. Defaults to 'mask'.
         mapping : dict, callable or None, optional
-            If `dict`, keys are from `src_attr[src]`.
-            If `callable`, takes single `src_attr[src]` value as an only
-            argument and returns a mapped value. Defaults to `None`.
+            If passed, each `attr[src]` element is mapped to desired range.
+            If `dict`, mapping is defined by key-value correspondence. If
+            `callable`, should return a single value from desired range for
+            each value from `attr[src]`. Defaults to `None`.
         default : numerical or string
-            Value to fill mask depths positions missing in `src_attr[src]`.
+            Value to fill mask depths positions missing in `attr[src]`.
             Defaults to `numpy.nan`.
         drop : list, optional
-            Values from `src_attr[src]` to drop (e.g. `[None, np.nan, ' ']`).
+            Values from `attr[src]` to drop (e.g. `[None, np.nan, ' ']`).
         limit : positive int or str or None, optional
-            If specified, the maximum distance in centimeters to fill nans from
-            both sides of each non-nan interval. Its boundary values are used
-            to fill consecutive nan positions. Gaps bigger than `limit` will
-            be only partially filled. If `str`, must be specified in a
-            <value><units> format (e.g. "10m"). If `None`, than nan values are
-            not filled at all. Defaults to `None`.
+            If specified, `2 * limit` is the maximum distance in centimeters to
+            fill consecutive nans from both sides of each non-nan interval.
+            Interval boundary values are used as filling values. Gaps bigger
+            than `2 * limit` will be only partially filled. If `str`, must be
+            specified in a <value><units> format (e.g. "10m"). If `None`, than
+            nan values are not filled at all. Defaults to `None`.
 
         Returns
         -------
         self : type(self)
             Self with created mask.
         """
-        if src_attr not in self.attrs_fdtd_index + self.attrs_depth_index:
-            raise ValueError('Got unsupported `src_attr`', src_attr)
-        if dst_attr not in ['logs', 'core_masks']:
-            raise ValueError('Got unsupported `dst_attr`', dst_attr)
+        if attr not in self.attrs_fdtd_index + self.attrs_depth_index:
+            raise ValueError('Got unsupported `attr`', attr)
+        if mode not in ['logs', 'core']:
+            raise ValueError('Got unsupported `mode`', mode)
 
-        src_series = getattr(self, src_attr)[src]
+        if mode == 'logs':
+            dst_attr = 'logs'
+        elif mode == 'core':
+            dst_attr = 'core_masks'
+
+        src_series = getattr(self, attr)[src]
 
         if not src_series.index.is_monotonic_increasing:
             src_series = src_series.sort_index(level=0)
@@ -1767,33 +1765,43 @@ class WellSegment(AbstractWellSegment):
             src_series = src_series[~src_series.isin(drop)]
 
         src_index = src_series.index
-        src_values = map_values(src_series, mapping) if mapping else src_series.values
+        src_values = map_values(src_series.values, mapping)
 
-        if src_attr == 'logs' and dst_attr == 'logs':
+        if attr == 'logs' and mode == 'logs':
             mask = src_values
-        elif src_attr in self.attrs_fdtd_index:
+        elif attr in self.attrs_fdtd_index:
             mask = self._create_mask_fdtd(src_index, src_values, dst_attr, default)
-        elif src_attr in self.attrs_depth_index:
+        elif attr in self.attrs_depth_index:
             mask = self._create_mask_depth(src_index, src_values, dst_attr, default)
 
         if limit is not None:
             limit = parse_depth(limit, check_positive=True, var_name='limit')
-            limit = limit // self.logs_step if dst_attr == 'logs' else limit * self.pixels_per_cm
+            limit = limit // self.logs_step if mode == 'logs' else limit * self.pixels_per_cm
             mask = pd.Series(mask).fillna(method='ffill', limit=limit).fillna(method='bfill', limit=limit).values
 
         getattr(self, dst_attr)[dst] = mask
         return self
 
-    def _create_mask_template(self, dst_attr, src_dtype, default):
-        """Create mask of desired length and dtype filled by default values."""
-        index = getattr(self, dst_attr).index
-        dtype = 'float64' if src_dtype.kind in set('buif') else 'object'
+    def _create_mask_template(self, src_values, dst_attr, default):
+        """Create mask of desired length and dtype filled by default values and
+        add `dst_attr` to `self` if missing.
+        """
+        if hasattr(self, dst_attr):
+            index = getattr(self, dst_attr).index
+        else:
+            if dst_attr == 'logs':
+                raise ValueError('Attribute `logs` is missing, cannot create mask in `logs` mode.')
+            if dst_attr == 'core_masks':
+                index = np.linspace(self.depth_from, self.depth_to, self._cm_to_pixels(self.length))
+            setattr(self, dst_attr, pd.DataFrame(index=pd.Index(index)))
+
+        dtype = np.array([src_values[0], default]).dtype
         mask = np.full(len(index), default, dtype=dtype)
         return index, mask
 
     def _create_mask_fdtd(self, src_index, src_values, dst_attr, default):
         """Create mask by fdtd indexed series."""
-        index, mask = self._create_mask_template(dst_attr, src_values.dtype, default)
+        index, mask = self._create_mask_template(src_values, dst_attr, default)
         depth_from = src_index.get_level_values('DEPTH_FROM').values
         depth_to = src_index.get_level_values('DEPTH_TO').values
         fill_from = np.searchsorted(index, depth_from, side='left')
@@ -1803,7 +1811,7 @@ class WellSegment(AbstractWellSegment):
 
     def _create_mask_depth(self, src_index, src_values, dst_attr, default):
         """Create mask by depth indexed series."""
-        index, mask = self._create_mask_template(dst_attr, src_values.dtype, default)
+        index, mask = self._create_mask_template(src_values, dst_attr, default)
         fill_pos = np.searchsorted(index, src_index, side='left')
         duplicates = np.concatenate([fill_pos[1:] - fill_pos[:-1] == 0, [False]])
         fill_pos = fill_pos[~duplicates]

@@ -96,7 +96,11 @@ def parse_depth(depth, check_positive=False, var_name="Depth/length"):
 
 
 def map_values(values, mapping):
-    """Accelerate values mapping for small inputs (size < 1600)."""
+    """Either map each `values` value using either `dict` or `callable` or
+    return `values` themselves if mapping is `None`.
+    """
+    if mapping is None:
+        return values
     uniques, indices = np.unique(values, return_inverse=True)
     if isinstance(mapping, dict):
         mapping = lambda x, m=mapping: m.get(x, x)
@@ -106,15 +110,26 @@ def map_values(values, mapping):
     return mapped_values
 
 
-def fill_intervals(arr, starts, ends, values):
-    """Accelerate interval-based array value fill."""
-    def fill(arr, starts, ends, values):
-        for start, end, value in zip(starts, ends, values):
-            arr[start:end] = value
-        return arr
+def for_fill_intervals(arr, starts, ends, values):
+    """`fill_intervals` subfunction moved out of its scope for consistency."""
+    for start, end, value in zip(starts, ends, values):
+        arr[start:end] = value
+    return arr
 
-    if values.dtype.kind in set('UO'):
-        return fill(arr, starts, ends, values)
+
+@njit
+def njit_fill_intervals(arr, starts, ends, values):
+    """`fill_intervals` subfunction moved out of its scope to allow caching."""
+    for start, end, value in zip(starts, ends, values):
+        arr[start:end] = value
+    return arr
+
+
+def fill_intervals(arr, starts, ends, values):
+    """Fill intervals in `arr` in limits defined by `starts` and `ends`
+    with `values` using either simple for loop or wrapped with @njit."""
     if values.dtype.kind in set('buif'):
-        return njit(fill)(arr, starts, ends, values)
+        return njit_fill_intervals(arr, starts, ends, values)
+    if values.dtype.kind in set('UO'):
+        return for_fill_intervals(arr, starts, ends, values)
     raise TypeError("Only numeric, str and object dtypes are supported.")
