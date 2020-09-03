@@ -117,12 +117,7 @@ def for_fill_intervals(arr, starts, ends, values):
     return arr
 
 
-@njit
-def njit_fill_intervals(arr, starts, ends, values):
-    """`fill_intervals` subfunction moved out of its scope to allow caching."""
-    for start, end, value in zip(starts, ends, values):
-        arr[start:end] = value
-    return arr
+njit_fill_intervals = njit(fill_intervals)
 
 
 def fill_intervals(arr, starts, ends, values):
