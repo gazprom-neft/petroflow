@@ -962,7 +962,7 @@ class WellSegment(AbstractWellSegment):
             try:
                 _ = [self._get_full_name(path, sample) for sample in samples]
             except Exception as err:
-                raise DataRegularityError(str(err))
+                raise DataRegularityError(str(err)) from err
 
         return self
 
