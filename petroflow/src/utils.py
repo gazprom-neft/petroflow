@@ -117,7 +117,7 @@ def for_fill_intervals(arr, starts, ends, values):
     return arr
 
 
-njit_fill_intervals = njit(fill_intervals)
+njit_fill_intervals = njit(for_fill_intervals)
 
 
 def fill_intervals(arr, starts, ends, values):
