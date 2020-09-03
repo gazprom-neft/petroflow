@@ -6,6 +6,7 @@ import functools
 
 import pint
 import numpy as np
+from numba import njit
 
 
 UNIT_REGISTRY = pint.UnitRegistry()
@@ -117,3 +118,38 @@ def parse_depth(depth, check_positive=False, var_name="Depth/length"):
     if check_positive and depth <= 0:
         raise ValueError("{} must be positive".format(var_name))
     return depth
+
+
+def map_values(values, mapping):
+    """Either map each `values` value using either `dict` or `callable` or
+    return `values` themselves if mapping is `None`.
+    """
+    if mapping is None:
+        return values
+    uniques, indices = np.unique(values, return_inverse=True)
+    if isinstance(mapping, dict):
+        mapping = lambda x, m=mapping: m.get(x, x)
+    elif not callable(mapping):
+        raise TypeError("Only `dict` and `callable` mappings are supported.")
+    mapped_values = np.array([mapping(x) for x in uniques])[indices]
+    return mapped_values
+
+
+def for_fill_intervals(arr, starts, ends, values):
+    """`fill_intervals` subfunction moved out of its scope for consistency."""
+    for start, end, value in zip(starts, ends, values):
+        arr[start:end] = value
+    return arr
+
+
+njit_fill_intervals = njit(for_fill_intervals)
+
+
+def fill_intervals(arr, starts, ends, values):
+    """Fill intervals in `arr` in limits defined by `starts` and `ends`
+    with `values` using either simple for loop or wrapped with @njit."""
+    if values.dtype.kind in set('buif'):
+        return njit_fill_intervals(arr, starts, ends, values)
+    if values.dtype.kind in set('UO'):
+        return for_fill_intervals(arr, starts, ends, values)
+    raise TypeError("Only numeric, str and object dtypes are supported.")

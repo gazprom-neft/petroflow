@@ -1,6 +1,6 @@
 """Implements WellSegment - a class, representing a contiguous part of a well.
 """
-# pylint: disable=no-member,protected-access
+# pylint: disable=no-member, protected-access
 
 import os
 import re
@@ -27,7 +27,7 @@ from plotly.offline import init_notebook_mode, plot, iplot
 from .abstract_classes import AbstractWellSegment
 from .matching import select_contigious_intervals, match_boring_sequence, find_best_shifts, create_zero_shift
 from .joins import cross_join, between_join, fdtd_join
-from .utils import to_list, process_columns, parse_depth
+from .utils import to_list, process_columns, parse_depth, map_values, fill_intervals
 from .exceptions import SkipWellException, DataRegularityError
 
 
@@ -573,9 +573,9 @@ class WellSegment(AbstractWellSegment):
             dl_img = dl_img[top_crop:bottom_crop]
             uv_img = uv_img[top_crop:bottom_crop]
 
-            insert_pos = max(0, self._cm_to_pixels(sample_depth_from - self.depth_from))
-            core_dl[insert_pos:insert_pos+dl_img.shape[0]] = dl_img
-            core_uv[insert_pos:insert_pos+uv_img.shape[0]] = uv_img
+            fill_pos = max(0, self._cm_to_pixels(sample_depth_from - self.depth_from))
+            core_dl[fill_pos:fill_pos+dl_img.shape[0]] = dl_img
+            core_uv[fill_pos:fill_pos+uv_img.shape[0]] = uv_img
 
         self._core_dl = core_dl if exist_dl else None
         self._core_uv = core_uv if exist_uv else None
@@ -966,7 +966,7 @@ class WellSegment(AbstractWellSegment):
             try:
                 _ = [self._get_full_name(path, sample) for sample in samples]
             except Exception as err:
-                raise DataRegularityError(str(err))
+                raise DataRegularityError(str(err)) from err
 
         return self
 
@@ -1711,78 +1711,122 @@ class WellSegment(AbstractWellSegment):
         crops = [self[start:start+length] for start in crops_starts]
         return crops
 
-    def create_mask(self, src, column, mapping=None, mode="logs", default=np.nan, dst="mask"):
-        """Transform a column from some `WellSegment` attribute into a mask
-        correponding to a well log or to a core image.
+    def create_mask(self, attr, src, mode="logs", dst="mask", mapping=None, default=np.nan, drop=None, limit=None):
+        """Create a mask by column of `WellSegment` attribute, using logs or
+        core data as a depth indexer.
 
         Parameters
         ----------
+        attr : str, from `self.attrs_depth_index` or `self.attrs_fdtd_index`
+            Name of the attribute to get the data for mask creation from.
         src : str
-            Attribute to get the column from.
-        column : str
-            Name of the column to transform.
-        mapping : dict or None
-            Mapping for column values. If `None`, original attribure values
-            will be kept in the mask. Defaults to `None`.
+            Name of the `attr` column to create mask from.
         mode : 'logs' or 'core'
-            A mode, specifying the length of computed mask. If 'logs', mask
-            lenght will match the length of well logs. If 'core', mask length
-            will match the heigth of `core_dl` in pixels. Defaults to
-            `'logs'`.
-        default : float, optional
-            Default value for mask if `src` doesn't contain information for
-            corresponding depth. Defaults to `numpy.nan`.
-        dst : str, optional
-            `WellSegment` attribute to save the mask to. Defaults to `mask`.
+            A mode, specifying which `WellSegment` attribute to use as a depth
+            indexer and where to store the created mask. If 'logs', each mask
+            position corresponds to a depth from `logs` and is saved to `logs`.
+            If 'core' then depths correspond to `core_dl` and mask is saved to
+            `core_masks` attribute. Note that the last one is not working with
+            well slicing and therefore not affected by `crop`, `aggregate` etc.
+            Defaults to 'logs'.
+        dst : str
+            Where to save the mask to. If `mode` is 'logs' then assign resulted
+            mask to `dst` column of `logs`. If `mode` is 'core` — to `dst`
+            column of `core_masks` attribute. Defaults to 'mask'.
+        mapping : dict, callable or None, optional
+            If passed, each `attr[src]` element is mapped to desired range.
+            If `dict`, mapping is defined by key-value correspondence. If
+            `callable`, should return a single value from desired range for
+            each value from `attr[src]`. Defaults to `None`.
+        default : numerical or string
+            Value to fill mask depths positions missing in `attr[src]`.
+            Defaults to `numpy.nan`.
+        drop : list, optional
+            Values from `attr[src]` to drop (e.g. `[None, np.nan, ' ']`).
+        limit : positive int or str or None, optional
+            If specified, `2 * limit` is the maximum distance in centimeters to
+            fill consecutive nans from both sides of each non-nan interval.
+            Interval boundary values are used as filling values. Gaps bigger
+            than `2 * limit` will be only partially filled. If `str`, must be
+            specified in a <value><units> format (e.g. "10m"). If `None`, than
+            nan values are not filled at all. Defaults to `None`.
 
         Returns
         -------
         self : type(self)
             Self with created mask.
         """
-        if src in self.attrs_fdtd_index:
-            self._create_mask_fdtd(src, column, mapping, mode, default, dst)
-        elif src in self.attrs_depth_index:
-            self._create_mask_depth_index(src, column, mapping, mode, default, dst)
-        else:
-            ValueError("Unknown src: ", src)
+        if attr not in self.attrs_fdtd_index + self.attrs_depth_index:
+            raise ValueError('Got unsupported `attr`', attr)
+        if mode not in ['logs', 'core']:
+            raise ValueError('Got unsupported `mode`', mode)
+
+        if mode == 'logs':
+            dst_attr = 'logs'
+        elif mode == 'core':
+            dst_attr = 'core_masks'
+
+        src_series = getattr(self, attr)[src]
+
+        if not src_series.index.is_monotonic_increasing:
+            src_series = src_series.sort_index(level=0)
+        if drop is not None:
+            src_series = src_series[~src_series.isin(drop)]
+
+        src_index = src_series.index
+        src_values = map_values(src_series.values, mapping)
+
+        if attr == 'logs' and mode == 'logs':
+            mask = src_values
+        elif attr in self.attrs_fdtd_index:
+            mask = self._create_mask_fdtd(src_index, src_values, dst_attr, default)
+        elif attr in self.attrs_depth_index:
+            mask = self._create_mask_depth(src_index, src_values, dst_attr, default)
+
+        if limit is not None:
+            limit = parse_depth(limit, check_positive=True, var_name='limit')
+            limit = limit // self.logs_step if mode == 'logs' else limit * self.pixels_per_cm
+            mask = pd.Series(mask).fillna(method='ffill', limit=limit).fillna(method='bfill', limit=limit).values
+
+        getattr(self, dst_attr)[dst] = mask
         return self
 
-    def _create_empty_mask(self, mode, default):
-        """Create a mask, filled with `default` value."""
-        if mode == "core":
-            mask = np.full(len(self.core_dl), default)
-        elif mode == "logs":
-            mask = np.full(len(self.logs), default)
+    def _create_mask_template(self, src_values, dst_attr, default):
+        """Create mask of desired length and dtype filled by default values and
+        add `dst_attr` to `self` if missing.
+        """
+        if hasattr(self, dst_attr):
+            index = getattr(self, dst_attr).index
         else:
-            raise ValueError("Unknown mode: ", mode)
+            if dst_attr == 'logs':
+                raise ValueError('Attribute `logs` is missing, cannot create mask in `logs` mode.')
+            if dst_attr == 'core_masks':
+                index = np.linspace(self.depth_from, self.depth_to, self._cm_to_pixels(self.length))
+            setattr(self, dst_attr, pd.DataFrame(index=pd.Index(index)))
+
+        dtype = np.array([src_values[0], default]).dtype
+        mask = np.full(len(index), default, dtype=dtype)
+        return index, mask
+
+    def _create_mask_fdtd(self, src_index, src_values, dst_attr, default):
+        """Create mask by fdtd indexed series."""
+        index, mask = self._create_mask_template(src_values, dst_attr, default)
+        depth_from = src_index.get_level_values('DEPTH_FROM').values
+        depth_to = src_index.get_level_values('DEPTH_TO').values
+        fill_from = np.searchsorted(index, depth_from, side='left')
+        fill_to = np.searchsorted(index, depth_to, side='right')
+        mask = fill_intervals(mask, fill_from, fill_to, src_values)
         return mask
 
-    def _create_mask_fdtd(self, src, column, mapping, mode, default, dst):
-        """Create mask from fdtd data."""
-        mask = self._create_empty_mask(mode, default)
-
-        table = getattr(self, src)
-        factor = len(mask) / self.length
-        for row in table.iterrows():
-            depth_from, depth_to = row[1].name
-            start = np.floor((max(depth_from, self.depth_from) - self.depth_from) * factor)
-            end = np.ceil((min(depth_to, self.depth_to) - self.depth_from) * factor)
-            mask[int(start):int(end)] = row[1][column] if mapping is None else mapping[row[1][column]]
-        setattr(self, dst, mask)
-
-    def _create_mask_depth_index(self, src, column, mapping, mode, default, dst):
-        """Create mask from depth-indexed data."""
-        # TODO: fix interpolation
-        mask = self._create_empty_mask(mode, default)
-
-        table = getattr(self, src)
-        factor = len(mask) / self.length
-        for row in table.iterrows():
-            depth = row[1].name
-            pos = np.floor((depth - self.depth_from) * factor)
-            mask[int(pos)] = row[1][column] if mapping is None else mapping[row[1][column]]
-        setattr(self, dst, mask)
+    def _create_mask_depth(self, src_index, src_values, dst_attr, default):
+        """Create mask by depth indexed series."""
+        index, mask = self._create_mask_template(src_values, dst_attr, default)
+        fill_pos = np.searchsorted(index, src_index, side='left')
+        duplicates = np.concatenate([fill_pos[1:] - fill_pos[:-1] == 0, [False]])
+        fill_pos = fill_pos[~duplicates]
+        src_values = src_values[~duplicates]
+        mask[fill_pos] = src_values
+        return mask
 
     @process_columns
     def apply(self, df, fn, *args, axis=None, **kwargs):
@@ -1923,18 +1967,20 @@ class WellSegment(AbstractWellSegment):
             setattr(self, "_" + attr, val)
         return self
 
-    def drop_nans(self, logs=None):
+    def drop_nans(self, mnemonics=None):
         """Split a well into contiguous segments, that do not contain `nan`
-        values in logs, specified in `logs`.
+        values in logs, specified in `mnemonics`.
 
         Parameters
         ----------
-        logs : None or int or list of str
-            - If `None`, create segments without `nan` values in all logs.
+        mnemonics : None or int or str or list of str
+            - If `None`, create segments without `nan` values for all mnemonics.
             - If `int`, create segments so that each row of logs has at least
-              `logs` not-nan values.
-            - If `list`, create segments without `nan` values in logs with
-              mnemonics in `logs`.
+              `mnemonics` not-nan values.
+            - If `str`, create segment without `nan` values in `mnemonics`
+              column of logs.
+            - If `list`, create segments without `nan` values in columns from
+              `mnemonics` of logs.
             Defaults to `None`.
 
         Returns
@@ -1943,11 +1989,11 @@ class WellSegment(AbstractWellSegment):
             If called for a `WellSegment`, returns a list of segments without
             `nan` values. Otherwise, return `self` with dropped `nan` values.
         """
-        logs = self.logs.columns if logs is None else logs
-        if isinstance(logs, int):
-            not_nan_mask = (~np.isnan(self.logs)).sum(axis=1) >= logs
+        mnemonics = self.logs.columns if mnemonics is None else mnemonics
+        if isinstance(mnemonics, int):
+            not_nan_mask = (~np.isnan(self.logs)).sum(axis=1) >= mnemonics
         else:
-            not_nan_mask = np.all(~np.isnan(self.logs[logs]), axis=1)
+            not_nan_mask = np.all(~np.isnan(self.logs[to_list(mnemonics)]), axis=1)
 
         if not not_nan_mask.any():
             return []
