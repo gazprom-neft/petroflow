@@ -1703,11 +1703,12 @@ class WellSegment(AbstractWellSegment):
             logs = self.logs  # Preload logs, since segment depths will be updated further
             self.actual_depth_to = self.depth_to
             self.depth_to += length
-            index = logs.index[-1] + np.arange(self.logs_step, length, self.logs_step)
+            index = pd.Index(logs.index[-1] + np.arange(self.logs_step, length, self.logs_step),
+                             name='DEPTH')
             data = np.full((len(index), len(logs.columns)), fill_value)
             pad_df = pd.DataFrame(data, index=index, columns=logs.columns)
             self._logs = pd.concat([logs, pad_df])
-        crops_starts = self.depth_from + np.arange(n_crops) * step
+        crops_starts = (self.depth_from + np.arange(n_crops) * step).astype(int).tolist()
         crops = [self[start:start+length] for start in crops_starts]
         return crops
 
