@@ -70,7 +70,10 @@ def process_columns(*dec_args, dst_from_result=False):
                                   'To suppress this warning explicitly pass `dst_from_result=False` to the method call.'
                                   .format(method.__qualname__))
                 dst = to_list(dst)
-            df[dst] = result
+            if len(dst) == 1:
+                df[dst[0]] = result
+            else:
+                df[dst] = result
 
             if drop_src:
                 df.drop(set(src) - set(dst), axis=1, inplace=True)
